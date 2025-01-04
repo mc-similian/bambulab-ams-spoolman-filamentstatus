@@ -726,12 +726,11 @@ async function starting() {
             spoolmanStatus = "Connected";
             console.log("Spoolman connection: true");
 
-            // Vendor und extraField prüfen
+            // Check vendor and Extra Field
             if (await checkAndSetVendor() && await checkAndSetExtraField()) {
                 console.log(`Backend running on http://localhost:${PORT}`);
-                // MQTT einrichten
                 setInterval(pingPrinterAndReconnect, PING_INTERVAL);
-                setupMqtt(); // Erste Initialisierung von MQTT
+                setupMqtt();
             } else {
                 console.error(`Error: Vendor or Extra Field "tag" could not be set!`);
             }
