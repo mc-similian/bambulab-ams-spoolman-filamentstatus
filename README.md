@@ -53,6 +53,7 @@ The architectures supported by this image are:
      -e SPOOLMAN_IP=<spoolman_ip_address> \
      -e SPOOLMAN_PORT=<spoolman_port> \
      -e UPDATE_INTERVAL=120000 \
+     -p 4000:4000 \
      --name bambulab-ams-spoolman-filamentstatus \
     ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:latest
    ```
