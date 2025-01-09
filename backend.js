@@ -144,7 +144,6 @@ async function checkAndSetVendor() {
     try {
         const response = await got(`http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/vendor`);
         const vendors = JSON.parse(response.body);
-        let vendorID;
 
         for (const vendor of vendors) {
             if (vendor.name === "Bambu Lab" || vendor.external_id === "Bambu Lab") {
@@ -155,11 +154,10 @@ async function checkAndSetVendor() {
 
         if (!vendorID) {
             console.log('Vendor "Bambu Lab" exists: false');
-             vendorID = await createVendor(); // Create vendor if not found
-             return vendorID; // Return the new vendor ID
+            return await createVendor(); // Return the new vendor ID
          } else {
             console.log('Vendor "Bambu Lab" exists: true');
-            return vendorID; // Return the existing vendor ID
+            return true; // Return the existing vendor ID
         }
      } catch (error) {
         console.error("Error fetching and setting vendor for Spoolman:", error);
