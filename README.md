@@ -4,6 +4,7 @@ This project integrates a Bambulab AMS system with Spoolman to synchronize filam
 
 This project is based on the idea of a script from [Diogo Resende](https://github.com/dresende) posted in this issue https://github.com/Donkie/Spoolman/issues/217 
 
+
 ## !! Attention !!
 This Solution only Works on Bambu Lab AMS Systems for the P and X Series. The AMS Lite is not supported because it only shows 100% or 0% left on the Spool: [#Issue 4](https://github.com/Rdiger-36/bambulab-ams-spoolman-filamentstatus/issues/4#issuecomment-2550571529)
 
@@ -226,6 +227,9 @@ Spoolman Extra Field "tag" for Spool is set: false
 Create Extra Filed "tag" for Spools in Spoolman
 Extra Field "tag" successfully created!
 ```
+
+## Support Me
+[![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/Rdiger36)
 
 ## FAQ
 Q: I can not merge my existing Spool to Spoolman. I can only create a new Spool or the container creates it automatically.
