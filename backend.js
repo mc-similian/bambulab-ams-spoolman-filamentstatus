@@ -21,6 +21,7 @@ const SPOOLMAN_PORT = process.env.SPOOLMAN_PORT;
 const UPDATE_INTERVAL = process.env.UPDATE_INTERVAL
   ? Math.min(Math.max(parseInt(process.env.UPDATE_INTERVAL, 10), 5000), 300000)
   : 120000;
+const DEBUG = process.env.DEBUG || "false";
 
 /**
  * Set mode for Spool Management:
@@ -47,6 +48,7 @@ let spoolData = [];
 // Array for save last Spool Data from Spoolman to check for changes
 let lastSpoolData = [];
 
+let first_run = true;
 // This vars contains stats for frontend
 let mqttStatus = "Disconnected";
 let spoolmanStatus = "Disconnected";
@@ -99,6 +101,16 @@ console.error = (...args) => {
     clients.forEach(client => {
         client.write(`data: ${JSON.stringify({ type: "error", message: errorMessage })}\n\n`);
     });
+};
+
+console.debug = (...args) => {
+    
+    if (DEBUG === "true") {
+        const debugMessage = `[DEBUG] ${new Date().toISOString()} - ${args.join(" ")}`;
+        originalConsoleLog(debugMessage);
+            
+    }
+    
 };
 
 // Convert numbers in alphabetical letters
@@ -343,17 +355,27 @@ function findMatchingInternalFilament(externalFilament, internalFilaments) {
 
 // Function to create a new spool in the system
 async function createSpool(spoolData) {
+    
+    // prepare data for post
+    const postData = {
+        filament_id: Number(spoolData.matchingInternalFilament.id),  // Set the internal filament ID
+        initial_weight: Number(spoolData.slot.tray_weight),  // Set the tray weight as initial weight
+        first_used: Date.now(),  // Set the timestamp for the first use
+        extra: {
+            tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
+        }
+    };
+    
+    // Debugging URL and Payload
+    console.debug("        Sending POST request to:", `http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool`);
+    console.debug("        Payload:", JSON.stringify(postData));
+
+    
     try {
+        
         // Send a POST request to create a new spool with the provided spool data
         const response = await got.post(`http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool`, {
-            json: {
-                filament_id: spoolData.matchingInternalFilament.id,  // Set the internal filament ID
-                initial_weight: spoolData.slot.tray_weight,  // Set the tray weight as initial weight
-                first_used: Date.now(),  // Set the timestamp for the first use
-                extra: {
-                    tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
-                }
-            }
+            json: postData,
         });
 
         // Log success message if spool is created successfully
@@ -394,6 +416,10 @@ async function createFilamentAndSpool(spoolData) {
             vendor_id: vendorID,
         };
 
+        // Debugging URL and Payload
+        console.debug("        Sending POST request to:", `http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/filament`);
+        console.debug("        Payload:", JSON.stringify(filamentPayload));
+        
         // Create filament in the Spoolman system
         const filamentResponse = await got.post(`http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/filament`, {
             json: filamentPayload,
@@ -421,6 +447,10 @@ async function createFilamentAndSpool(spoolData) {
                     tag: `\"${spoolData.slot.tray_uuid}\"`
                 }
             };
+            
+            // Debugging URL and Payload
+            console.debug("        Sending POST request to:", `http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool`);
+            console.debug("        Payload:", JSON.stringify(spoolPayload));
 
             // Create spool in the Spoolman system
             await got.post(`http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool`, {
@@ -442,14 +472,22 @@ async function createFilamentAndSpool(spoolData) {
 
 // Function to merge a spool with an existing spool in the system
 async function mergeSpool(spoolData) {
+    
+    // prepare data for post
+    const postData = {
+        extra: {
+            tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
+        }
+    };
+
+    // Debugging URL and Payload
+    console.debug("        Sending POST request to:", `http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool/${spoolData.mergeableSpool.id}`);
+    console.debug("        Payload:", JSON.stringify(postData));
+    
     try {
         // Send a PATCH request to update the spool with new tag data
         const response = await got.patch(`http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool/${spoolData.mergeableSpool.id}`, {
-            json: {
-                extra: {
-                    tag: `\"${spoolData.slot.tray_uuid}\"`  // Attach tray UUID to the spool's extra field
-                }
-            }
+            json: postData
         });
 
         // Log success message if the spool merge is successful
@@ -510,37 +548,54 @@ async function setupMqtt() {
 
         // Listen for incoming messages
         client.on("message", async (topic, message) => {
-            
+                        
             if (!blockNewMqttUpdates) {
-            
+                
                 blockNewMqttUpdates = true;
                 
                 try {
+                    console.debug('Parse message to processable JSON');
                     const data = JSON.parse(message);
+                    
+                    console.debug('Check if message contains AMS Data');
                     if (data?.print?.ams?.ams) {
                         const currentTime = new Date();
                         let printHeader = false;
                         
+                        console.debug('Check next Update Interval');
                         // Update if the AMS data is stale
-                        if (currentTime.getTime() - lastUpdateTime.getTime() > UPDATE_INTERVAL) {
+                        if ((currentTime.getTime() - lastUpdateTime.getTime() > UPDATE_INTERVAL) || first_run) {
+                            first_run = false;
                             const isValidAmsData = data.print.ams.humidity !== "" && data.print.ams.temp !== "";
                         
+                            console.debug('Fetch Data from Spoolman');
                             // Fetch data from Spoolman API
                             const spools = await getSpoolmanSpools();
+                            console.debug('Registered Spools:');
+                            console.debug(JSON.stringify(spools));
+                            
                             const externalFilaments = await getSpoolmanExternalFilaments();
+                            
                             const internalFilaments = await getSpoolmanInternalFilaments();
+                            console.debug('Registered Filaments:');
+                            console.debug(JSON.stringify(internalFilaments));
                                     
                             // Chekc if Spool Data changed
                             const spoolsChanged = await haveSpoolDataChanged(spools, lastSpoolData);
                             
+                            console.debug('Check if AMS Data is valid and check if Spoolman or AMS Data got any changes');
                             // If valid AMS data and different from last received, process and Spool Data in Spoolman changed
                             if (isValidAmsData && (spoolsChanged || JSON.stringify(data.print.ams.ams) !== JSON.stringify(lastAmsData))) {
                                 printHeader = true;
                                 // Reset spool data before updating
                                 spoolData = [];
     
+                                console.debug('Check completed and there are changes');
+                                
+                                console.debug('Check each AMS Slot and process its Spool Data');
                                 // Iterate through AMS trays and process each slot
                                 for (const ams of data.print.ams.ams) {
+                                    
                                     if (printHeader) {
                                         console.log('');
                                         console.log(`AMS [${await num2letter(ams.id)}] (hum: ${ams.humidity}, temp: ${ams.temp}ºC)`);
@@ -548,142 +603,196 @@ async function setupMqtt() {
                                     }
     
                                     // Process valid tray slots
+                                    console.debug('    Check if data from the Slots are valid');
                                     if (Array.isArray(ams.tray)) {
                                         const validSlots = ams.tray.filter(item => !hasOnlyId(item));
     
                                         if (validSlots.length > 0) {
+                                            console.debug('    Some Slots are processable');
                                             for (const slot of validSlots) {
                                                 // Skip invalid slots
-                                                if (slot.remain < 0 || (slot.tray_uuid === "00000000000000000000000000000000" && slot.tray_color == "00000000")) continue;
+                                                console.debug('    Skip slot if its remaining Filament is < 0 or has no Serial or Color');
+                                                if (slot.remain >= 0 || (slot.tray_uuid !== "00000000000000000000000000000000" && slot.tray_color != "00000000")) {
     
-                                                let found = false;
-                                                let remainingWeight = "";
-                                                let mergeableSpool = null;
-                                                let matchingExternalFilament = null;
-                                                let matchingInternalFilament = null;
-                                                let existingSpool = null;
-                                                let option = "No actions available";
-                                                let enableButton = "false";
-                                                let automatic = false;
-    
-                                                // Set automatic mode
-                                                if (MODE === "automatic") automatic = true;
-    
-                                                // Adjust PETG Translucent color stats, so its accessable in Spoolman
-                                                if (slot.tray_sub_brands === "PETG Translucent" && slot.tray_color === "00000000") {
-                                                    slot.tray_color = "FFFFFF00";
-                                                }
-    
-                                                // Find matching filaments for the slot
-                                                matchingExternalFilament = await findMatchingExternalFilament(slot, externalFilaments);
-                                                matchingInternalFilament = await findMatchingInternalFilament(matchingExternalFilament, internalFilaments);
-    
-                                                // Check existing spools
-                                                for (const spool of spools) {
-                                                    if (spool.extra?.tag && JSON.parse(spool.extra.tag) === slot.tray_uuid) {
-                                                        found = true;
-                                                        remainingWeight = (slot.remain / 100) * slot.tray_weight;
-    
-                                                        // Update spool if found
-                                                        await got.patch(`http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool/${spool.id}`, {
-                                                            json: {
-                                                                remaining_weight: remainingWeight,
-                                                                last_used: currentTime
-                                                            },
-                                                        });
-    
-                                                        console.log(`    - [${await num2letter(ams.id)}${slot.id}] ${slot.tray_sub_brands} ${slot.tray_color} (${slot.remain}%) [[ ${slot.tray_uuid} ]]`);
-                                                        console.log(`        - Updated Spool-ID ${spool.id} => ${spool.filament.name}`);
-    
-                                                        lastUpdateTime = currentTime;
-                                                        existingSpool = spool;
-                                                        break;
+                                                    console.debug('    Slot is valid');
+                                                    
+                                                    let found = false;
+                                                    let remainingWeight = "";
+                                                    let mergeableSpool = null;
+                                                    let matchingExternalFilament = null;
+                                                    let matchingInternalFilament = null;
+                                                    let existingSpool = null;
+                                                    let option = "No actions available";
+                                                    let enableButton = "false";
+                                                    let automatic = false;
+        
+                                                    // Set automatic mode
+                                                    if (MODE === "automatic") automatic = true;
+        
+                                                    // Adjust PETG Translucent color stats, so its accessable in Spoolman
+                                                    if (slot.tray_sub_brands === "PETG Translucent" && slot.tray_color === "00000000") {
+                                                        slot.tray_color = "FFFFFF00";
                                                     }
-                                                }
-    
-                                                // Handle no matching spool found
-                                                if (!found) {
-                                                    console.log(`    - [${await num2letter(ams.id)}${slot.id}] ${slot.tray_sub_brands} ${slot.tray_color} (${slot.remain}%) [[ ${slot.tray_uuid} ]]`);
-    
-                                                    // Try to find mergeable spools
-                                                    mergeableSpool = await findMergeableSpool(slot, spools);
-    
-                                                    if (!mergeableSpool) {
-                                                        // Create new spool if no matching or mergeable spool found
-                                                        existingSpool = await findExistingSpool(slot, spools);
-    
-                                                        if (!existingSpool) {
-                                                            if (matchingInternalFilament) {
-                                                                console.log("        - A new Spool can be created with following Filament:");
-                                                                console.log(`          Material: ${matchingInternalFilament.material}, Color: ${matchingInternalFilament.name}`);
-    
-                                                                if (automatic) {
-                                                                    console.log(`          creating Spool...`);
-                                                                    let info = [];
-                                                                    info.push({
-                                                                      amsId: (await num2letter(ams.id)) + slot.id,
-                                                                      slot,
-                                                                      matchingInternalFilament,
-                                                                      matchingExternalFilament,
+        
+                                                    // Find matching filaments for the slot
+                                                    matchingExternalFilament = await findMatchingExternalFilament(slot, externalFilaments);
+                                                    matchingInternalFilament = await findMatchingInternalFilament(matchingExternalFilament, internalFilaments);
+        
+                                                    console.debug("    Check if there are any Spools in Spoolman");
+                                                    if (spools.length !== 0) {
+                                                    
+                                                        // Check existing spools
+                                                        console.debug('    Spools found. Check if there is a Spool in Spoolman with an already connected Serial');
+                                                        for (const spool of spools) {
+                                                            if (spool.extra?.tag && JSON.parse(spool.extra.tag) === slot.tray_uuid) {
+                                                                console.debug('    Connected Spool found: ' + JSON.stringify(spool));
+                                                                found = true;
+                                                                remainingWeight = (slot.remain / 100) * slot.tray_weight;
+                                                                
+                                                                const patchData = {
+                                                                    remaining_weight: remainingWeight,
+                                                                    last_used: currentTime
+                                                                };
+
+                                                                // Debug URL and Payload
+                                                                console.debug("    Sending PATCH request to:", `http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool/${spool.id}`);
+                                                                console.debug("    Payload:", JSON.stringify(patchData));
+
+                                                                try {
+                                                                    // Send a PATCH request to update the spool with new tag data
+                                                                    const response = await got.patch(`http://${SPOOLMAN_IP}:${SPOOLMAN_PORT}/api/v1/spool/${spool.id}`, {
+                                                                        json: patchData
                                                                     });
-                                                                    await createSpool(info[0]);
+                                                                    
+                                                                    // Log success message if the spool update is successful
+                                                                    console.log(`    - [${await num2letter(ams.id)}${slot.id}] ${slot.tray_sub_brands} ${slot.tray_color} (${slot.remain}%) [[ ${slot.tray_uuid} ]]`);
+                                                                    console.log(`        - Updated Spool-ID ${spool.id} => ${spool.filament.name}`);
+
+                                                                } catch (error) {
+                                                                    // Log error details if the update fails
+                                                                    console.error('          #####');
+                                                                    console.error('          Spool update failed: ', error.message);
+                                                                    console.error('          Error details:', error.response?.statusCode, error.response?.body || error.stack);
+                                                                    console.error('          #####');
                                                                 }
-                                                                option = "Create Spool";
-                                                            } else if (matchingExternalFilament) {
-                                                                // Create new filament and spool if no matching internal filament or existing spool or mergeable spool found
-                                                                console.log("        - A new Filament and Spool can be created:");
-                                                                console.log(`          Material: ${matchingExternalFilament.material}, Color: ${matchingExternalFilament.name}`);
-    
-                                                                if (automatic) {
-                                                                    console.log(`          creating Filament and Spool...`);
-                                                                    let info = [];
-                                                                       info.push({
-                                                                        amsId: (await num2letter(ams.id)) + slot.id,
-                                                                         slot,
-                                                                         matchingInternalFilament,
-                                                                         matchingExternalFilament,
-                                                                       });
-                                                                       await createFilamentAndSpool(info[0]);
-                                                                }
-                                                                option = "Create Filament & Spool";
+            
+                                                                lastUpdateTime = currentTime;
+                                                                existingSpool = spool;
+                                                                break;
                                                             }
                                                         }
                                                     } else {
-                                                        console.log(`        - Found mergeable Spool => Spoolman Spool ID: ${mergeableSpool.id}, Material: ${mergeableSpool.filament.material}, Color: ${mergeableSpool.filament.name}`);
-    
-                                                        if (automatic) {
-                                                            console.log(`          merging Spool...`);
-                                                            let info = [];
-                                                               info.push({
-                                                                 amsId: (await num2letter(ams.id)) + slot.id,
-                                                                 slot,
-                                                                 mergeableSpool,
-                                                                 matchingInternalFilament,
-                                                                 matchingExternalFilament,
-                                                               });
-                                                            await mergeSpool(info[0]);
-                                                        }
-                                                        option = "Merge Spool";
+                                                        console.debug("No Spools in Spoolman, skip this part");
                                                     }
-    
-                                                    // Enable button for manual actions
-                                                    if (!automatic) enableButton = "true";
-                                                    lastUpdateTime = new Date();
+        
+                                                    // Handle no matching spool found
+                                                    if (!found) {
+                                                        console.debug('    Connected Spool not found, process with merging and creation logic');
+                                                        console.log(`    - [${await num2letter(ams.id)}${slot.id}] ${slot.tray_sub_brands} ${slot.tray_color} (${slot.remain}%) [[ ${slot.tray_uuid} ]]`);
+        
+                                                        if (spools.length !== 0) {
+                                                            // Try to find mergeable spools
+                                                            mergeableSpool = await findMergeableSpool(slot, spools);
+                                                        } else {
+                                                            mergeableSpool == null;
+                                                        }
+        
+                                                        console.debug('    Check if Spool is mergeable with an existing Spool');
+                                                        if (!mergeableSpool) {
+                                                            console.debug('    Spool is not mergable, check for other existing spools');
+                                                            // Create new spool if no matching or mergeable spool found
+                                                            
+                                                            if (spools.length !== 0) {
+                                                                // Try to find mergeable spools
+                                                                existingSpool = await findExistingSpool(slot, spools);
+                                                            } else {
+                                                                existingSpool == null;
+                                                            }
+                                                            
+                                                            
+                                                            console.debug('    Check if there is an existing Spool');
+                                                            if (!existingSpool) {
+                                                                console.debug('    No existing Spool, check if Filament is created');
+                                                                if (matchingInternalFilament) {
+                                                                    console.log('        Filament exists, create s Spool with this Data');
+                                                                    console.log("        - A new Spool can be created with following Filament:");
+                                                                    console.log(`          Material: ${matchingInternalFilament.material}, Color: ${matchingInternalFilament.name}`);
+        
+                                                                    if (automatic) {
+                                                                        console.log(`          creating Spool...`);
+                                                                        let info = [];
+                                                                        info.push({
+                                                                          amsId: (await num2letter(ams.id)) + slot.id,
+                                                                          slot,
+                                                                          matchingInternalFilament,
+                                                                          matchingExternalFilament,
+                                                                        });
+                                                                        await createSpool(info[0]);
+                                                                    }
+                                                                    option = "Create Spool";
+                                                                } else if (matchingExternalFilament) {
+                                                                    console.debug('        Filament does not exists. Create a new Filament');
+                                                                    // Create new filament and spool if no matching internal filament or existing spool or mergeable spool found
+                                                                    console.log("        - A new Filament and Spool can be created:");
+                                                                    console.log(`          Material: ${matchingExternalFilament.material}, Color: ${matchingExternalFilament.name}`);
+        
+                                                                    if (automatic) {
+                                                                        console.log(`          creating Filament and Spool...`);
+                                                                        let info = [];
+                                                                           info.push({
+                                                                            amsId: (await num2letter(ams.id)) + slot.id,
+                                                                             slot,
+                                                                             matchingInternalFilament,
+                                                                             matchingExternalFilament,
+                                                                           });
+                                                                           await createFilamentAndSpool(info[0]);
+                                                                    }
+                                                                    option = "Create Filament & Spool";
+                                                                }
+                                                            }
+                                                        } else {
+                                                            console.log(`        - Found mergeable Spool => Spoolman Spool ID: ${mergeableSpool.id}, Material: ${mergeableSpool.filament.material}, Color: ${mergeableSpool.filament.name}`);
+        
+                                                            if (automatic) {
+                                                                console.log(`          merging Spool...`);
+                                                                let info = [];
+                                                                   info.push({
+                                                                     amsId: (await num2letter(ams.id)) + slot.id,
+                                                                     slot,
+                                                                     mergeableSpool,
+                                                                     matchingInternalFilament,
+                                                                     matchingExternalFilament,
+                                                                   });
+                                                                await mergeSpool(info[0]);
+                                                            }
+                                                            option = "Merge Spool";
+                                                        }
+        
+                                                        // Enable button for manual actions
+                                                        if (!automatic) enableButton = "true";
+                                                        lastUpdateTime = new Date();
+                                                    }
+        
+                                                    // Store updated spool data for frontend
+                                                    spoolData.push({
+                                                        amsId: (await num2letter(ams.id)) + slot.id,
+                                                        slot,
+                                                        mergeableSpool,
+                                                        matchingInternalFilament,
+                                                        matchingExternalFilament,
+                                                        existingSpool,
+                                                        option,
+                                                        enableButton,
+                                                    });
+                                                } else {
+                                                    console.debug('Slot is invalid, because there is a false remaining Filament state, no Serial or no color ');
                                                 }
-    
-                                                // Store updated spool data for frontend
-                                                spoolData.push({
-                                                    amsId: (await num2letter(ams.id)) + slot.id,
-                                                    slot,
-                                                    mergeableSpool,
-                                                    matchingInternalFilament,
-                                                    matchingExternalFilament,
-                                                    existingSpool,
-                                                    option,
-                                                    enableButton,
-                                                });
                                             }
+                                        } else {
+                                            console.debug('No Data found in Slots');
                                         }
+                                    } else {
+                                        console.debug('Data from Slots are not valid');
                                     }
                                 }
                                 
@@ -706,7 +815,11 @@ async function setupMqtt() {
                             });
                             
                             lastMqttUpdate = new Date().toISOString();
+                        } else {
+                            console.debug(`Data will not be processed because of manually set intervall`);
                         }
+                    } else {
+                        console.debug(`No processable Data found for JSON filter data.printer.ams.ams`);
                     }
                 } catch (error) {
                     console.error(`Error in message handler: ${error}`);
