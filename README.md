@@ -88,6 +88,7 @@ The architectures supported by this image are:
 | `UPDATE_INTERVAL` | Time in ms for updating spools in Spoolman (standard 120000 ms -> 2 minutes) min. 5000 (5 sec), max 3000000 (5 min)|
 | `MODE`            | Set the mode of the service: "automatic" or "manual" (standard: manual) |
 | `SHOW_LOGS_WEB`   | Enable this to show Logs in WEB UI: "true" or "false" (standard: false)|
+| `DEBUG`   | Enable this to show more Logs for Debugging (not for WEB UI Logs): "true" or "false" (standard: false)|
 
 ---
 
