@@ -583,9 +583,26 @@ async function setupMqtt() {
                             // Chekc if Spool Data changed
                             const spoolsChanged = await haveSpoolDataChanged(spools, lastSpoolData);
                             
+                            // Processing AMS Data for valid options
+                            const processedAmsData = data.print.ams.ams.map(ams => ({
+                                ...ams,
+                                tray: ams.tray.map(slot => ({
+                                    ...slot,
+                                    // Negative remaining Filament auf 0 setzen
+                                    remain: slot.remain < 0 ? 0 : slot.remain,
+                                    // Adjust PETG Translucent color stats
+                                    tray_color: slot.tray_sub_brands === "PETG Translucent" && slot.tray_color === "00000000"
+                                        ? "FFFFFF00"
+                                        : slot.tray_color
+                                }))
+                            }));
+                            
                             console.debug('Check if AMS Data is valid and check if Spoolman or AMS Data got any changes');
                             // If valid AMS data and different from last received, process and Spool Data in Spoolman changed
-                            if (isValidAmsData && (spoolsChanged || JSON.stringify(data.print.ams.ams) !== JSON.stringify(lastAmsData))) {
+                            if (isValidAmsData && (spoolsChanged || JSON.stringify(processedAmsData) !== JSON.stringify(lastAmsData))) {
+                                
+                                console.debug('Loaded AMS Spools:');
+                                console.debug(JSON.stringify(processedAmsData));
                                 printHeader = true;
                                 // Reset spool data before updating
                                 spoolData = [];
@@ -594,7 +611,7 @@ async function setupMqtt() {
                                 
                                 console.debug('Check each AMS Slot and process its Spool Data');
                                 // Iterate through AMS trays and process each slot
-                                for (const ams of data.print.ams.ams) {
+                                for (const ams of processedAmsData) {
                                     
                                     if (printHeader) {
                                         console.log('');
@@ -611,11 +628,11 @@ async function setupMqtt() {
                                             console.debug('    Some Slots are processable');
                                             for (const slot of validSlots) {
                                                 // Skip invalid slots
-                                                console.debug('    Skip slot if its remaining Filament is < 0 or has no Serial or Color');
-                                                if (slot.remain > 0 && (slot.tray_uuid !== "00000000000000000000000000000000" && slot.tray_color != "00000000")) {
+                                                console.debug('    Skip slot if it has no Serial or Color');
+                                                if (slot.tray_uuid !== "00000000000000000000000000000000" || slot.tray_color != "00000000") {
     
                                                     console.debug('    Slot is valid');
-                                                    
+                                                                                                    
                                                     let found = false;
                                                     let remainingWeight = "";
                                                     let mergeableSpool = null;
@@ -628,12 +645,7 @@ async function setupMqtt() {
         
                                                     // Set automatic mode
                                                     if (MODE === "automatic") automatic = true;
-        
-                                                    // Adjust PETG Translucent color stats, so its accessable in Spoolman
-                                                    if (slot.tray_sub_brands === "PETG Translucent" && slot.tray_color === "00000000") {
-                                                        slot.tray_color = "FFFFFF00";
-                                                    }
-        
+                
                                                     // Find matching filaments for the slot
                                                     matchingExternalFilament = await findMatchingExternalFilament(slot, externalFilaments);
                                                     matchingInternalFilament = await findMatchingInternalFilament(matchingExternalFilament, internalFilaments);
@@ -800,7 +812,7 @@ async function setupMqtt() {
                                 
                                 // Update last MQTT AMS data timestamp
                                 lastMqttAmsUpdate = new Date().toISOString();
-                                lastAmsData = data.print.ams.ams;
+                                lastAmsData = processedAmsData;
                                 console.log("");
                             } else {
                                 const UpdateIntSec = UPDATE_INTERVAL / 1000;
