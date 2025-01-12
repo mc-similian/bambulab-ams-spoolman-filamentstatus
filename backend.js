@@ -612,7 +612,7 @@ async function setupMqtt() {
                                             for (const slot of validSlots) {
                                                 // Skip invalid slots
                                                 console.debug('    Skip slot if its remaining Filament is < 0 or has no Serial or Color');
-                                                if (slot.remain >= 0 && (slot.tray_uuid !== "00000000000000000000000000000000" && slot.tray_color != "00000000")) {
+                                                if (slot.remain > 0 && (slot.tray_uuid !== "00000000000000000000000000000000" && slot.tray_color != "00000000")) {
     
                                                     console.debug('    Slot is valid');
                                                     
