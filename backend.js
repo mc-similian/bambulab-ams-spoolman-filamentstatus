@@ -34,7 +34,6 @@ const MODE = process.env.MODE || "manual";
 const SHOW_LOGS_WEB = process.env.SHOW_LOGS_WEB || "false";
 
 const RECONNECT_INTERVAL = 60000; // Intervall for try to reconnect once in a minute
-const PING_INTERVAL = 5000; // Intervall for ping printer every 5 seconds to be sure if its online
 
 // save original console.log
 const originalConsoleLog = console.log;
@@ -272,11 +271,6 @@ async function createExtraField() {
         console.error('#####');
         throw error;
     }
-}
-
-// Check if Object only has one item to prevent processing false Data
-function hasOnlyId(item) {
-    return Object.keys(item).length === 1 && item.hasOwnProperty('id');
 }
 
 // Check if Spool with exact Data exists in Spoolman
@@ -521,7 +515,8 @@ function formatDate(date) {
 
 // Main function for requesting Bambu Lab Printers MQTT Data and prcess it
 async function setupMqtt() {
-    
+    if (mqttRunning) return;
+
     try {
         
         console.log("Setting up MQTT connection...");
@@ -529,7 +524,6 @@ async function setupMqtt() {
         // Connect to the MQTT broker using TLS
         const client = await mqtt.connectAsync(`tls://bblp:${PRINTER_CODE}@${PRINTER_IP}:8883`, {
             rejectUnauthorized: false,  // Accept self-signed certificates
-            keepalive: 3600,
         });
 
         mqttStatus = "Connected";  // Set the MQTT status
@@ -540,12 +534,14 @@ async function setupMqtt() {
         await client.subscribe(`device/${PRINTER_ID}/report`);
         console.log(`Subscribed to device/${PRINTER_ID}/report`);
         
+        client.removeAllListeners("close");
         client.on("close", () => {
             console.log("MQTT connection closed");
             mqttStatus = "Disconnected";
             mqttRunning = false;
         });
 
+        client.removeAllListeners("message");
         // Listen for incoming messages
         client.on("message", async (topic, message) => {
                         
@@ -622,8 +618,13 @@ async function setupMqtt() {
                                     // Process valid tray slots
                                     console.debug('    Check if data from the Slots are valid');
                                     if (Array.isArray(ams.tray)) {
-                                        const validSlots = ams.tray.filter(item => !hasOnlyId(item));
-    
+                                        
+                                        const validSlots = ams.tray.filter(slot => {
+                                            return Object.keys(slot).length > 3; // if slot has not more than 3 entries, then skip
+                                        });
+                                        console.debug("Filtered validSlots:", JSON.stringify(validSlots));
+                                        
+
                                         if (validSlots.length > 0) {
                                             console.debug('    Some Slots are processable');
                                             for (const slot of validSlots) {
@@ -632,6 +633,12 @@ async function setupMqtt() {
                                                 if (slot.tray_uuid !== "00000000000000000000000000000000" || slot.tray_color != "00000000") {
     
                                                     console.debug('    Slot is valid');
+                                                    
+                                                    // Set remaining Filament to 0 if slot indicates it as negative
+                                                    if (slot.remain < 0) {
+                                                        console.debug('    Set remaining Filament to 0 because AMS indicates it as negative value');
+                                                        slot.remain = 0;
+                                                    }
                                                                                                     
                                                     let found = false;
                                                     let remainingWeight = "";
@@ -862,8 +869,8 @@ async function starting() {
             // Check vendor and Extra Field
             if (await checkAndSetVendor() && await checkAndSetExtraField()) {
                 console.log(`Backend running on http://localhost:${PORT}`);
-                setInterval(pingPrinterAndReconnect, PING_INTERVAL);
-                setupMqtt();
+                monitorPrinter(); // Start the printer monitoring loop
+                setupMqtt(); // Start MQTT setup
             } else {
                 console.error(`Error: Vendor or Extra Field "tag" could not be set!`);
             }
@@ -875,19 +882,33 @@ async function starting() {
     }
 }
 
-// This keeps the script running even if the printer gets offline.
-async function pingPrinterAndReconnect() {
-    const isAlive = await ping.promise.probe(PRINTER_IP);
-    if (isAlive.alive) {
-        if (!mqttRunning) {
-            console.log("MQTT not running, attempting to reconnect...");
-            setupMqtt();
+// Controlled loop for monitoring the printer
+async function monitorPrinter() {
+    while (true) {
+        try {
+            const isAlive = await ping.promise.probe(PRINTER_IP);
+            if (isAlive.alive) {
+                if (!mqttRunning) {
+                    console.log("MQTT not running, attempting to reconnect...");
+                    setupMqtt();
+                }
+            } else {
+                console.error(`Printer:${PRINTER_ID} with IP ${PRINTER_IP} is unreachable. Retrying in ${RECONNECT_INTERVAL / 1000}s...`);
+                mqttStatus = "Disconnected";
+                mqttRunning = false;
+            }
+        } catch (error) {
+            console.error("Error during printer monitoring:", error);
         }
-    } else {
-        console.warn(`Printer:${PRINTER_ID} with IP ${PRINTER_IP} is unreachable. Retrying in ${RECONNECT_INTERVAL / 1000}s...`);
-        mqttStatus = "Disconnected";
-        mqttRunning = false;
+        
+        // Wait for RECONNECT_INTERVAL before checking again
+        await sleep(RECONNECT_INTERVAL);
     }
+}
+
+// A helper function for sleeping
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // REST API endpoint to provide status information to the frontend
