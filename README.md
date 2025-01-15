@@ -241,3 +241,57 @@ A: Please check your filament, not spool, in spoolman. The material must be the 
 
 ## Things and Features I'm Working on
  - Multiple printer Support (in development, can be tested soon)
+
+# Dev Channel
+You can run the latest version that is not stable and ready yet.
+If you get some errors or failures, than please report it to me, thanks.
+
+```bash
+ ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:dev
+```
+
+In this Dev release, you dont need to set PRINTER_ID, PRINTER_CODE or PRINTER_IP. You can set these information in the new file ./printers/printers.json
+
+For this you need to set a volume path in docker, e.g. docker compose:
+   ```bash
+   version: '3.8'
+    services:
+      bambulab-ams-spoolman-filamentstatus:
+        image: ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:latest
+        container_name: bambulab-ams-spoolman-filamentstatus
+        environment:
+          - SPOOLMAN_IP=<spoolman_ip_address>
+          - SPOOLMAN_PORT=<spoolman_port>
+          - UPDATE_INTERVAL=15000
+          - MODE=automatic
+          - DEBUG=true
+        volumes:
+          - /path/to/your/container/printers:/app/printers
+        restart: unless-stopped
+   ```
+The printer.json have to look like this and can be expanded and reduced:
+   ```bash
+[
+    {
+        "name": "Printer 1",
+        "id": "01PXXXXXXXXXXXX",
+        "code": "AccessCode",
+        "ip": "192.168.1.X"
+    },
+    {
+        "name": "Printer 2",
+        "id": "01PXXXXXXXXXXXX",
+        "code": "AccessCode",
+        "ip": "192.168.1.X"
+    },
+    {
+        "name": "Printer 3",
+        "id": "01PXXXXXXXXXXXX",
+        "code": "AccessCode",
+        "ip": "192.168.1.X"
+    }
+]
+   ```
+
+You can change between the printers over the dropdown menu on top of the website:
+![image](https://github.com/user-attachments/assets/104b9c2e-2b42-453a-b0a1-cbbe63ef5184)
