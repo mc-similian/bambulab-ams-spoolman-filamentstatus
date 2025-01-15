@@ -13,12 +13,12 @@ This Solution only Works on Bambu Lab AMS Systems for the P and X Series. The AM
 
 ## Features
 
-- Real-time AMS filament status updates
+- Real-time AMS filament status updates for all possible AMS on one printer (max. 4)
+- Multiple Printer Support (in development, can be tested soon)
 - Synchronizes spool usage with Spoolman
 - Lightweight Docker container for easy deployment
 - Web UI for manually merge or create Spools with collected data
 - Automatic Mode for automatically merge or create Spools with collected data
-
 
 ## Getting Started
 
@@ -240,4 +240,4 @@ A: Please check your filament, not spool, in spoolman. The material must be the 
 
 
 ## Things and Features I'm Working on
- - Multiple printer Support 
+ - Multiple printer Support (in development, can be tested soon)
