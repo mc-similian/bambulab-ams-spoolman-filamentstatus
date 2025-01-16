@@ -14,7 +14,7 @@ This Solution only Works on Bambu Lab AMS Systems for the P and X Series. The AM
 ## Features
 
 - Real-time AMS filament status updates for all possible AMS on one printer (max. 4)
-- Multiple Printer Support (in development, can be tested via [dev channel](https://github.com/Rdiger-36/bambulab-ams-spoolman-filamentstatus/tree/main?tab=readme-ov-file#dev-channel))
+- Multiple Printer Support (in development status: golden master (will be released soon), can be tested via [dev channel](https://github.com/Rdiger-36/bambulab-ams-spoolman-filamentstatus/tree/main?tab=readme-ov-file#dev-channel))
 - Synchronizes spool usage with Spoolman
 - Lightweight Docker container for easy deployment
 - Web UI for manually merge or create Spools with collected data
@@ -244,7 +244,7 @@ A: Please check your filament, not spool, in spoolman. The material must be the 
 
 
 ## Things and Features I'm Working on
- - Multiple Printer Support (in development, can be tested via [dev channel](https://github.com/Rdiger-36/bambulab-ams-spoolman-filamentstatus/tree/main?tab=readme-ov-file#dev-channel))
+ - Multiple Printer Support (in development status: golden master (will be released soon), can be tested via [dev channel](https://github.com/Rdiger-36/bambulab-ams-spoolman-filamentstatus/tree/main?tab=readme-ov-file#dev-channel))
 
 
 ---
