@@ -26,6 +26,10 @@ This Solution only Works on Bambu Lab AMS Systems for the P and X Series. The AM
 
 - A running instance of Spoolman
 - Access to your Bambulab AMS printer with its **serial number**, **access code**, and **IP address**
+- Turn the "Update remaining capacity" option in Bambu Studio:
+  ![Bildschirmfoto 2025-01-16 um 18 00 45](https://github.com/user-attachments/assets/fe6cf018-b211-4fd6-8931-1c895842d71b) ![Bildschirmfoto 2025-01-16 um 18 01 44](https://github.com/user-attachments/assets/23c60d83-e5ed-41af-9fbc-24cc9dd8ede7)
+
+
 
 ### Supported Architectures
 
