@@ -51,16 +51,39 @@ The architectures supported by this image are:
    docker pull ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:latest
    ```
 
+2. Create your /path/to/your/config/printers/printers.json:
+      ```bash
+      [
+          {
+              "name": "Printer 1",
+              "id": "01PXXXXXXXXXXXX",
+              "code": "AccessCode",
+              "ip": "192.168.1.X"
+          },
+          {
+              "name": "Printer 2",
+              "id": "01PXXXXXXXXXXXX",
+              "code": "AccessCode",
+              "ip": "192.168.1.X"
+          },
+          {
+              "name": "Printer 3",
+              "id": "01PXXXXXXXXXXXX",
+              "code": "AccessCode",
+              "ip": "192.168.1.X"
+          }
+      ]
+     ``` 
+
 2. Run the container:
    ```bash
    docker run -d \
-     -e PRINTER_ID=<your_printer_serial> \
-     -e PRINTER_CODE=<your_access_code> \
-     -e PRINTER_IP=<printer_ip_address> \
      -e SPOOLMAN_IP=<spoolman_ip_address> \
      -e SPOOLMAN_PORT=<spoolman_port> \
      -e UPDATE_INTERVAL=120000 \
+     -e MODE=automatic \
      -p 4000:4000 \
+     -v /path/to/your/config/printers:/app/printers \
      --name bambulab-ams-spoolman-filamentstatus \
     ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:latest
    ```
@@ -72,32 +95,29 @@ The architectures supported by this image are:
       bambulab-ams-spoolman-filamentstatus:
         image: ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:latest
         container_name: bambulab-ams-spoolman-filamentstatus
+        ports:
+          - 4000:4000
         environment:
-          - PRINTER_ID=<your_printer_serial>
-          - PRINTER_CODE=<your_access_code>
-          - PRINTER_IP=<printer_ip_address>
           - SPOOLMAN_IP=<spoolman_ip_address>
           - SPOOLMAN_PORT=<spoolman_port>
           - UPDATE_INTERVAL=120000
+          - MODE=automatic
+        volumes:
+          - /path/to/your/config/printers:/app/printers
         restart: unless-stopped
    ```
----
 
 ## Environment Variables
 
 | Variable         | Description                                    |
 |-------------------|-----------------------------------------------|
-| `PRINTER_ID`      | Printer serial number                         |
-| `PRINTER_CODE`    | Printer access code                           |
-| `PRINTER_IP`      | Local IP address of the printer               |
 | `SPOOLMAN_IP`     | IP address of the Spoolman instance           |
 | `SPOOLMAN_PORT`   | Port of the Spoolman instance                 |
 | `UPDATE_INTERVAL` | Time in ms for updating spools in Spoolman (standard 120000 ms -> 2 minutes) min. 5000 (5 sec), max 3000000 (5 min)|
 | `MODE`            | Set the mode of the service: "automatic" or "manual" (standard: manual) |
-| `SHOW_LOGS_WEB`   | Enable this to show Logs in WEB UI: "true" or "false" (standard: false)|
 | `DEBUG`   | Enable this to show more Logs for Debugging (not for WEB UI Logs): "true" or "false" (standard: false)|
 
----
+Old ENVs (PRINTER_IP, PRINTER_ID, PRINTER_CODE) also works, but will be overwritten if you use multiple printers in printers.json 
 
 ## Usage
 
@@ -110,31 +130,48 @@ docker logs -f bambulab-ams-spoolman-filamentstatus
 
 Example Output:
 ```bash
-Setting up configuration...
-Spoolman connection: true
-Checking Vendors...
-Vendor "Bambu Lab" exists: true
-Checking Extra Field "tag"...
-Spoolman Extra Field "tag" for Spool is set: true
-
-Backend running on http://localhost:4000
-MQTT client connected
-Subscribed to device/YOUR_PRINTER_SERIAL/report
-Waiting for MQTT messages...
-
-AMS [A] (hum: 5, temp: 0.0ºC)
-    - [A0] PETG HF 000000FF (17%) [[ A012456878ABCDEF ]]
-        - A new Filament and Spool can be created:
-          Material: PETG, Color: HF Black
-    - [A1] PETG Translucent 61B0FF80 (100%) [[ B012456878ABCDEF ]]
-        - A new Filament and Spool can be created:
-          Material: PETG, Color: Translucent Light Blue
-    - [A2] PLA Basic F4EE2AFF (74%) [[ C012456878ABCDEF ]]
-        - A new Filament and Spool can be created:
-          Material: PLA, Color: Yellow
-    - [A3] PLA Matte 9B9EA0FF (98%) [[ D012456878ABCDEF ]]
-        - A new Filament and Spool can be created:
-          Material: PLA, Color: Matte Ash Gray
+[LOG] Server - Setting up configuration...
+[LOG] Server - Spoolman connection: true
+[LOG] Server - Checking Vendors...
+[LOG] Server - Vendor "Bambu Lab" exists: true
+[LOG] Server - Checking Extra Field "tag"...
+[LOG] Server - Spoolman Extra Field "tag" for Spool is set: true
+[LOG] Server - Backend running on http://localhost:4000
+[LOG] Bambu Lab P1S - MQTT not running for Printer: 01P00A460901001, attempting to reconnect...
+[LOG] Bambu Lab P1S - Setting up MQTT connection for Printer: 01P00A460901001...
+[LOG] Bambu Lab Test Printer A - MQTT not running for Printer: 0AX12345678, attempting to reconnect...
+[LOG] Bambu Lab Test Printer A - Setting up MQTT connection for Printer: 0AX12345678...
+[LOG] Bambu Lab Test Printer A - MQTT client connected for Printer: 0AX12345678
+[LOG] Bambu Lab Test Printer A - Waiting for MQTT messages for Printer: 0AX12345678...
+[LOG] Bambu Lab P1S - MQTT client connected for Printer: 01P00A460901001
+[LOG] Bambu Lab P1S - Waiting for MQTT messages for Printer: 01P00A460901001...
+[LOG] Bambu Lab Test Printer A - AMS [A] (hum: 5, temp: 0.0ºC)
+[LOG] Bambu Lab Test Printer A -     - [A0] ASA-CF 000000FF (85%) [[ XXXXXX000001 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 5 => Black
+[LOG] Bambu Lab Test Printer A -     - [A1] PETG Translucent D6ABFFFF (49%) [[ XXXXXX000002 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 6 => Translucent Purple
+[LOG] Bambu Lab Test Printer A -     - [A2] PLA Marble AD4E38FF (63%) [[ XXXXXX000003 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 7 => Red Granite
+[LOG] Bambu Lab Test Printer A -     - [A3] PLA Galaxy 594177FF (38%) [[ XXXXXX000004 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 8 => Purple Galaxy
+[LOG] Bambu Lab Test Printer A -     - [B0] PLA Basic F4EE2AFF (10%) [[ XXXXXX000005 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 9 => Yellow
+[LOG] Bambu Lab Test Printer A -     - [B1] TPU for AMS 90FF1AFF (27%) [[ XXXXXX000006 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 10 => For AMS Neon Green
+[LOG] Bambu Lab Test Printer A -     - [B2] PLA Basic 00AE42FF (98%) [[ XXXXXX000007 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 11 => Bambu Green
+[LOG] Bambu Lab Test Printer A -     - [B3] PLA Matte BB3D43FF (50%) [[ XXXXXX000008 ]]
+[LOG] Bambu Lab Test Printer A -         - Updated Spool-ID 12 => Matte Dark Red
+[LOG] Bambu Lab Test Printer A - 
+[LOG] Bambu Lab P1S - AMS [A] (hum: 5, temp: 0.0ºC)
+[LOG] Bambu Lab P1S -     - [A0] PLA Basic 000000FF (15%) [[ XXXXXX00000A ]]
+[LOG] Bambu Lab P1S -         - Updated Spool-ID 1 => Black
+[LOG] Bambu Lab P1S -     - [A1] PLA Matte 000000FF (32%) [[ XXXXXX00000B ]]
+[LOG] Bambu Lab P1S -         - Updated Spool-ID 2 => Matte Charcoal
+[LOG] Bambu Lab P1S -     - [A2] PLA Basic FFFFFFFF (100%) [[ XXXXXX00000C ]]
+[LOG] Bambu Lab P1S -         - Updated Spool-ID 3 => Jade White
+[LOG] Bambu Lab P1S -     - [A3] PLA Basic 000000FF (100%) [[ XXXXXX00000D ]]
+[LOG] Bambu Lab P1S -         - Updated Spool-ID 4 => Black
 ```
 
 ### How does it work
@@ -154,7 +191,7 @@ The collected data can be used for:
 There are two modes you can run this container: automatic and manual
 - automatic:
     - The above functions are all performed automatically, you dont need to interact with the container
-      Preview:
+      Preview on console:
       ```bash
           - [A0] PETG HF 000000FF (18%) [[ A012456878ABCDEF ]]
                 - A new Filament and Spool can be created:
@@ -193,11 +230,13 @@ There are two modes you can run this container: automatic and manual
                 - Updated Spool-ID 1 => HF Black
       ```
 
+      The above functions can also be accessed by a Web UI which is reachable on http://localhost:4000
+      ![Bildschirmfoto 2025-01-19 um 22 23 50](https://github.com/user-attachments/assets/a648f96d-42d2-4c7b-ac36-55ea86ca9b65)
+
+      You will find more infos about it on te Web UI section
+
 - manual:
-    - The above functions can be accessed by a Web UI which is reachable on http://localhost:4000
-      
-      Preview:
-      ![image](https://github.com/user-attachments/assets/19cbf02b-8db5-4ab7-bb9a-f6e17253cdd1)
+      In manual mode you can click action buttons to manual merge and create spools and filaments:
       ![Bildschirmfoto 2025-01-04 um 01 33 10](https://github.com/user-attachments/assets/85d9ab66-5afa-45a1-822e-e226c089bc78)
 
 ### AMS Infos
@@ -211,9 +250,6 @@ There are two modes you can run this container: automatic and manual
 
 This will be expanded till D (max. 4 AMS on one Printer)
 
-
-
----
 
 ## Spoolman Spool Configuration
 
@@ -234,6 +270,17 @@ Create Extra Filed "tag" for Spools in Spoolman
 Extra Field "tag" successfully created!
 ```
 
+## Web UI
+Main Menu:
+![Bildschirmfoto 2025-01-19 um 22 23 50](https://github.com/user-attachments/assets/a648f96d-42d2-4c7b-ac36-55ea86ca9b65)
+
+Menubar for seletion Printers, Logs or change Dark-/Lightmode:
+![image](https://github.com/user-attachments/assets/c93c95bf-551b-459e-ae8b-b027b37b067d)
+
+Logs can be accessed over the Backend Logs Menubutton (it only display the logs of the selected Printer from the Main Menu):
+![Bildschirmfoto 2025-01-19 um 22 38 12](https://github.com/user-attachments/assets/848e35de-ad8a-4826-8264-6a21f5070765)
+
+
 ## Support Me
 [![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/Rdiger36)
 
@@ -242,64 +289,9 @@ Q: I can not merge my existing Spool to Spoolman. I can only create a new Spool 
 
 A: Please check your filament, not spool, in spoolman. The material must be the same material from the Web UI or Logs. For example PETG HF could be set as PETG.
 
+Q: I can not handle my Bambu Lab dual or gradient color Spools with this service.
+
+A: For this filaments i don't have data to check how I can process it. Please send me some logs, so I can implement it!
 
 ## Things and Features I'm Working on
- - Multiple Printer Support (in development status: golden master (will be released soon), can be tested via [dev channel](https://github.com/Rdiger-36/bambulab-ams-spoolman-filamentstatus/tree/main?tab=readme-ov-file#dev-channel))
-
-
----
-
-
-# Dev Channel
-You can run the latest version that is not stable and ready yet.
-If you get some errors or failures, than please report it to me, thanks.
-
-```bash
- ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:dev
-```
-
-In this Dev release, you dont need to set PRINTER_ID, PRINTER_CODE or PRINTER_IP. You can set these information in the new file ./printers/printers.json
-
-For this you need to set a volume path in docker, e.g. docker compose:
-   ```bash
-   version: '3.8'
-    services:
-      bambulab-ams-spoolman-filamentstatus:
-        image: ghcr.io/rdiger-36/bambulab-ams-spoolman-filamentstatus:latest
-        container_name: bambulab-ams-spoolman-filamentstatus
-        environment:
-          - SPOOLMAN_IP=<spoolman_ip_address>
-          - SPOOLMAN_PORT=<spoolman_port>
-          - UPDATE_INTERVAL=15000
-          - MODE=automatic
-          - DEBUG=true
-        volumes:
-          - /path/to/your/container/printers:/app/printers
-        restart: unless-stopped
-   ```
-The printer.json have to look like this and can be expanded and reduced:
-   ```bash
-[
-    {
-        "name": "Printer 1",
-        "id": "01PXXXXXXXXXXXX",
-        "code": "AccessCode",
-        "ip": "192.168.1.X"
-    },
-    {
-        "name": "Printer 2",
-        "id": "01PXXXXXXXXXXXX",
-        "code": "AccessCode",
-        "ip": "192.168.1.X"
-    },
-    {
-        "name": "Printer 3",
-        "id": "01PXXXXXXXXXXXX",
-        "code": "AccessCode",
-        "ip": "192.168.1.X"
-    }
-]
-   ```
-
-You can change between the printers over the dropdown menu on top of the website:
-![image](https://github.com/user-attachments/assets/104b9c2e-2b42-453a-b0a1-cbbe63ef5184)
+ - make the code more stable
