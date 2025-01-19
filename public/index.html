@@ -7,17 +7,34 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Dark Mode Button, der oben rechts in der Ecke sein soll -->
-  <button id="dark-mode-toggle" class="dark-mode-button">
-    <img id="dark-mode-icon" src="https://img.icons8.com/ios-glyphs/30/moon-symbol.png" alt="Mode Toggle">
-  </button>
+  <div id="menubar">
+    <!-- Printer Dropdown -->
+    <div class="dropdown">
+      <button class="dropdown-button">Printers</button>
+      <div class="dropdown-content" id="printer-menu">
+        <!-- dynamic entries will be filled automatically -->
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-button">Backend Logs</button>
+      <div class="dropdown-content" id="printer-menu">
+         <a id="log-button" onclick="redirectToLogs('printer')">Printer Logs</a>
+         <a id="log-button" onclick="redirectToLogs('server')">Server Logs</a>
+      </div>
+    </div>
+    <!-- Dark Mode Button -->
+    <button id="dark-mode-toggle">
+        <img id="dark-mode-icon" src="https://img.icons8.com/ios-glyphs/30/moon-symbol.png" alt="Toggle Dark Mode">
+    </button>
+  </div>
 
   <!-- App Content -->
   <div id="app">
-    <h1>Loaded Spools on AMS from <span id="printer-serial"></span></h1>
+    <h1>Loaded Spools on AMS from <span id="printer-name"></span></h1>
     <div id="status">
       <p>Spoolman connection status: <span id="spoolman-status"></span></p>
       <p>MQTT connection to printer: <span id="mqtt-status"></span></p>
+      <p>Printer Serial Number: <span id="printer-serial"></span></p>
       <p>Mode: <span id="mode"></span></p>
       <p>Last MQTT update: <span id="last-mqtt-update"></span></p>
       <p>Last MQTT update contains new AMS infos: <span id="last-mqtt-ams-update"></span></p>
@@ -28,28 +45,26 @@
           <th>AMS Slot ID</th>
           <th>Material</th>
           <th>Remaining (estimated)</th>
-          <th>Color</td>
+          <th>Color</th>
           <th>Serialnumber</th>
           <th>Action</th>
         </tr>
       </thead>
       <tbody id="spool-list">
-        <!-- Dynamische Zeilen werden hier eingefügt -->
+        <!-- dynamic table will be created automatically -->
       </tbody>
     </table>
-    <div id="log-box" style="display: none;">
-        <h3>Backend Logs</h3>
-        <div id="logs"></div>
-    </div>
   </div>
+
   <script src="frontend.js"></script>
-</body>
-<dialog id="info-dialog">
+
+  <dialog id="info-dialog">
     <h3><span id="button-header" style="display: block; text-align: center;"></span></h3>
     <div id="dialog-content"></div>
     <div class="button-container">
-         <button class="btn" id="close-dialog">Close</button>
-         <button class="btn" id="action-button"><span id="action-button"></span></button>
-     </div>
-</dialog>
+      <button class="btn" id="close-dialog">Close</button>
+      <button class="btn" id="action-button"><span id="action-button"></span></button>
+    </div>
+  </dialog>
+</body>
 </html>

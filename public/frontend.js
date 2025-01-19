@@ -2,47 +2,52 @@ let autoButton = null;
 
 // Initialize the document once it has fully loaded
 document.addEventListener("DOMContentLoaded", () => {
+    
     const toggleButton = document.getElementById("dark-mode-toggle");
     const body = document.body;
     const darkModeEnabled = localStorage.getItem("dark-mode") === "true";
+    const lightModeIcon = "https://img.icons8.com/ios-glyphs/30/moon-symbol.png";
+    const darkModeIcon = document.getElementById("dark-mode-icon");
+    const darkModeIconUrl = "https://img.icons8.com/color/48/sun--v1.png";
+    
+    // Apply dark mode if it was previously enabled
+    if (darkModeEnabled) {
+        const darkModeEnabled = body.classList.toggle("dark-mode");
+        darkModeIcon.src = darkModeEnabled ? darkModeIconUrl : lightModeIcon;
+        localStorage.setItem("dark-mode", darkModeEnabled);
+    }
+
+    // Dynamically add transition after page load
+    window.addEventListener("DOMContentLoaded", () => {
+        // Add the transition class after a short delay to prevent the initial animation
+        setTimeout(() => {
+            body.classList.add("transition-enabled");
+        }, 100);
+    });
+    
+    // Handle dark mode toggle button clicks
+    toggleButton.addEventListener("click", () => {
+        const darkModeEnabled = body.classList.toggle("dark-mode");
+        darkModeIcon.src = darkModeEnabled ? darkModeIconUrl : lightModeIcon;
+        localStorage.setItem("dark-mode", darkModeEnabled);
+    });
     
     // Fetch initial data and set up periodic updates
-    fetchData();
+    // Fetch and display printers dynamically
+    fetchPrinters();
 
     // Set up Server-Sent Events (SSE) connection for real-time updates
     const eventSource = new EventSource('/api/events'); // Backend URL for events
 
     // Handle incoming messages from SSE
-    eventSource.onmessage = function(event) {
-        if (event.data === 'refresh frontend') {
-            if (!isDialogOpen()) {
-                fetchData();
-            }
-        } else {
-            // Parse the event data
-            const data = JSON.parse(event.data);
-
-            // Check if the event is a log message
-            if (data.type === "log" || data.type === "error") {
-                // LogBox reference
-                const logsContainer = document.getElementById('logs');
-
-                // Create a new log entry
-                const logEntry = document.createElement('p');
-                logEntry.textContent = `${data.message}`;
-                logEntry.style.color = data.type === "error" ? "red" : "inherit"; // Highlight errors in red
-                
-                if (!logEntry.textContent.includes("No new AMS Data or changes in Spoolman found, wait for next Updates")) logsContainer.appendChild(logEntry);
-
-                // Limit the number of log entries to 100
-                const MAX_LOG_ENTRIES = 100;
-                while (logsContainer.children.length > MAX_LOG_ENTRIES) {
-                    logsContainer.removeChild(logsContainer.firstChild);
-                }
-
-                // Auto-scroll to the latest log
-                logsContainer.scrollTop = logsContainer.scrollHeight;
-            }
+    eventSource.onmessage = function (event) {
+        
+        // Parse the event data
+        const data = JSON.parse(event.data);
+        const printerId = document.getElementById('printer-serial').textContent;
+            
+        if (data.type === 'refresh' && data.printer === printerId && !isDialogOpen()) {
+            fetchPrinters(); // Refresh data when needed
         }
     };
 
@@ -56,63 +61,67 @@ document.addEventListener("DOMContentLoaded", () => {
         const dialog = document.getElementById("info-dialog");
         return dialog && dialog.open;
     }
-
-    // Fetch and update all necessary data
-    async function fetchData() {
+    
+    // Fetch printers from the backend
+    async function fetchPrinters() {
         try {
-            await Promise.all([fetchSpools(), fetchStatus()]);
-        } catch (error) {
-            console.error("Error fetching data:", error);
-        }
-    }
-
-    // Fetch the status information from the backend
-    async function fetchStatus() {
-        try {
-            const response = await fetch("/api/status");
+            const response = await fetch("/api/printers");
             if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
 
-            const status = await response.json();
-            const updateTime = status.lastMqttUpdate
-                ? formatDate(new Date(status.lastMqttUpdate))
-                : "No update yet";
+            const printers = await response.json();
+            const printerMenu = document.getElementById("printer-menu");
+            printerMenu.innerHTML = ""; // Clear existing menu items
 
-            const updateTimeAms = status.lastMqttAmsUpdate
-                ? formatDate(new Date(status.lastMqttAmsUpdate))
-                : "No update yet";
-
-            // Update the UI with the fetched status
-            updateStatus({
-                spoolmanStatus: status.spoolmanStatus,
-                mqttStatus: status.mqttStatus,
-                lastMqttUpdate: updateTime,
-                lastMqttAmsUpdate: updateTimeAms,
-                printerSerial: status.PRINTER_ID,
-                mode: status.MODE,
-                showLogs: status.SHOW_LOGS_WEB,
+            printers.forEach(printer => {
+              const menuItem = document.createElement("a"); // create menu entry
+              menuItem.textContent = printer.name;
+              menuItem.href = "#"; // set url for loading logs
+              menuItem.onclick = (event) => {
+                event.preventDefault();
+                loadPrinterData(printer.id);
+                sessionStorage.setItem("lastSelectedPrinterId", printer.id);
+              };
+              printerMenu.appendChild(menuItem);
             });
 
+            // Automatically load the first printer
+            if (printers.length > 0) {
+                 const lastSelectedPrinterId = sessionStorage.getItem("lastSelectedPrinterId");
+                 if (lastSelectedPrinterId) {
+                     loadPrinterData(lastSelectedPrinterId); // loading last printer
+                 } else {
+                     loadPrinterData(printers[0].id); // load first printer if theres no last used
+                 }
+             }
         } catch (error) {
-            console.error("Error fetching status:", error);
-            showError("Error retrieving connection status.");
+            console.error("Error fetching printers:", error);
+            alert("Failed to load printers. Please check the backend.");
         }
     }
 
-    // Fetch spool information from the backend
-    async function fetchSpools() {
+    // Fetch and display data for a specific printer
+    async function loadPrinterData(printerId) {
         try {
-            const response = await fetch("/api/spools");
-            if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+            const [statusResponse, spoolsResponse] = await Promise.all([
+                fetch(`/api/status/${printerId}`),
+                fetch(`/api/spools/${printerId}`)
+            ]);
 
-            const spools = await response.json();
+            if (!statusResponse.ok || !spoolsResponse.ok) {
+                throw new Error("Error fetching printer data.");
+            }
+
+            const status = await statusResponse.json();
+            const spools = await spoolsResponse.json();
+
+            updateStatus(status);
             updateSpools(spools);
-
         } catch (error) {
-            console.error("Error fetching spools:", error);
-            showError("Error retrieving spool data.");
+            console.error(`Error loading data for printer ${printerId}:`, error);
         }
     }
 
+    
     // Update the displayed list of spools based on fetched data
     async function updateSpools(spools) {
         const spoolListElement = getElementSafe("spool-list");
@@ -286,19 +295,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Update various status elements in the UI
-    function updateStatus({ spoolmanStatus, mqttStatus, lastMqttUpdate, lastMqttAmsUpdate, printerSerial, mode, showLogs }) {
-        updateElementText("spoolman-status", spoolmanStatus);
-        updateElementText("mqtt-status", mqttStatus);
-        updateElementText("last-mqtt-update", lastMqttUpdate);
-        updateElementText("last-mqtt-ams-update", lastMqttAmsUpdate);
-        updateElementText("printer-serial", printerSerial);
-        updateElementText("mode", mode);
+    function updateStatus(data) {
+                
+        data.lastMqttUpdate = data.lastMqttUpdate
+            ? formatDate(new Date(data.lastMqttUpdate))
+            : "No update yet";
+
+        data.lastMqttAmsUpdate = data.lastMqttAmsUpdate
+            ? formatDate(new Date(data.lastMqttAmsUpdate))
+            : "No update yet";
         
-        const logBox = document.getElementById("log-box");
-        // Überprüfen, ob die Variable true ist und den Bereich anzeigen oder ausblenden
-        if (showLogs === "true") {
-            logBox.style.display = "block"; // Log-Bereich anzeigen
-        }
+        updateElementText("spoolman-status", data.spoolmanStatus);
+        updateElementText("mqtt-status", data.mqttStatus);
+        updateElementText("last-mqtt-update", data.lastMqttUpdate);
+        updateElementText("last-mqtt-ams-update", data.lastMqttAmsUpdate);
+        updateElementText("printer-name", data.printerName);
+        updateElementText("mode", data.MODE);
+        updateElementText("printer-serial", data.PRINTER_ID);
+        
     }
 
     // Safely get an element by ID and log a warning if it doesn't exist
@@ -346,36 +360,18 @@ document.addEventListener("DOMContentLoaded", () => {
         return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
     }
     
-    // Apply dark mode if it was previously enabled
-    if (darkModeEnabled) {
-        body.classList.add("dark-mode");
-    }
-
-    // Handle dark mode toggle button clicks
-    toggleButton.addEventListener("click", () => {
-        const isDarkMode = body.classList.toggle("dark-mode");
-        localStorage.setItem("dark-mode", isDarkMode);
-    });
-
-    // Additional DOMContentLoaded listener for dark mode toggle setup
-    document.addEventListener("DOMContentLoaded", () => {
-        const toggleButton = document.getElementById("dark-mode-toggle");
-        const darkModeIcon = document.getElementById("dark-mode-icon");
-        const body = document.body;
-
-        const lightModeIcon = "https://img.icons8.com/ios-glyphs/30/moon-symbol.png";
-        const darkModeIconUrl = "https://img.icons8.com/color/48/sun--v1.png";
-
-        const isDarkMode = localStorage.getItem("dark-mode") === "true";
-        if (isDarkMode) {
-            body.classList.add("dark-mode");
-            darkModeIcon.src = darkModeIconUrl;
-        }
-
-        toggleButton.addEventListener("click", () => {
-            const darkModeEnabled = body.classList.toggle("dark-mode");
-            darkModeIcon.src = darkModeEnabled ? darkModeIconUrl : lightModeIcon;
-            localStorage.setItem("dark-mode", darkModeEnabled);
-        });
-    });
 });
+
+// redirect to log page on button click
+function redirectToLogs(type) {
+    
+    if (type === "server") {
+        window.location.href = `logs.html?name=server`;
+    } else {
+        const printerSerial = document.getElementById('printer-serial').textContent.trim();
+        const encodedSerial = encodeURIComponent(printerSerial);
+        const printerName = document.getElementById('printer-name').textContent.trim();
+        const encodedName = encodeURIComponent(printerName);
+        window.location.href = `logs.html?serial=${encodedSerial}&name=${encodedName}`;
+    }
+}
