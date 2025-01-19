@@ -5,7 +5,8 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "got": "^14.4.5",
-    "ping": "^0.4.4"
+    "ping": "^0.4.4",
+    "fs-extra": "^11.2.0"
   },
   "name": "ams-spool-manager",
   "version": "1.0.0",
@@ -17,5 +18,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": ""
+  "description": "This project integrates a Bambulab AMS system with Spoolman to synchronize filament spool usage. It listens for MQTT updates from the printer and manages spools on Spoolman.",
+  "devDependencies": {}
 }
