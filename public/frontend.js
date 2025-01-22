@@ -167,13 +167,15 @@ document.addEventListener("DOMContentLoaded", () => {
             // Populate table row with spool data
             spoolRow.innerHTML = `
                 <td>${amsSpool.amsId}</td>
+                <td>${amsSpool.slotState}</td>
                 <td>${amsSpool.slot.tray_sub_brands}</td>
                 <td>${amsSpoolRemainingWeight} g / ${amsSpool.slot.tray_weight} g (${amsSpool.slot.remain}%)</td>
-                <td style="background-color: #${amsSpool.slot.tray_color}; color: ${getTextColor(amsSpool.slot.tray_color)}">
+                <td style="${colorName !== 'N/A' ? `background-color: #${amsSpool.slot.tray_color}; color: ${getTextColor(amsSpool.slot.tray_color)}` : ''}">
                     ${colorName}
                 </td>
                 <td>${amsSpool.slot.tray_uuid}</td>
             `;
+
 
             // Add the action button to the row
             const buttonCell = document.createElement("td");
@@ -341,6 +343,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Calculate the appropriate text color based on background brightness
     function getTextColor(hexColor) {
+        
+        if (hexColor === "N/A") hexColor = "FFFFFFFF"
+        
         const r = parseInt(hexColor.slice(0, 2), 16);
         const g = parseInt(hexColor.slice(2, 4), 16);
         const b = parseInt(hexColor.slice(4, 6), 16);

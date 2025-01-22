@@ -376,8 +376,19 @@ function findMatchingExternalFilament(amsSpool, externalFilaments) {
         const transformedMaterial = transform(amsSpool.tray_sub_brands || '');
         const matchingFilament = externalFilaments.find(filament => {
             const colorHex = filament.color_hex || '';
-            return filament.id.startsWith(`bambulab_${transformedMaterial}`) &&
-                   colorHex.toLowerCase() === amsSpool.tray_color.slice(0,6).toLowerCase();
+            
+            let id = "";
+            
+            if (amsSpool.tray_sub_brands.toLowerCase().includes("support")) {
+                id = filament.id.startsWith(`bambulab_${amsSpool.tray_type.split('-')[0].toLowerCase()}_${transformedMaterial}`) &&
+                           colorHex.toLowerCase() === amsSpool.tray_color.slice(0,6).toLowerCase();
+            } else {
+                id = filament.id.startsWith(`bambulab_${transformedMaterial}`) &&
+                           colorHex.toLowerCase() === amsSpool.tray_color.slice(0,6).toLowerCase();
+            }
+                       
+                       
+            return id;
         });
         if (matchingFilament) return matchingFilament;
     }
@@ -671,19 +682,16 @@ async function handleMqttMessage(printer, topic, message) {
                         // Process valid tray slots
                         console.debug(printer.name, printer.logFilePath,'    Check if data from the Slots are valid');
                         if (Array.isArray(ams.tray)) {
-                            
-                            const validSlots = ams.tray.filter(slot => {
-                                return Object.keys(slot).length > 3; // if slot has not more than 3 entries, then skip
-                            });
-                            console.debug(printer.name, printer.logFilePath,"Filtered validSlots:", JSON.stringify(validSlots));
-                            
-    
-                            if (validSlots.length > 0) {
-                                console.debug(printer.name, printer.logFilePath,'    Some Slots are processable');
-                                for (const slot of validSlots) {
-                                    // Skip invalid slots
-                                    console.debug(printer.name, printer.logFilePath,'    Skip slot if it has no Serial or Color');
-                                    if (slot.tray_uuid !== "00000000000000000000000000000000" && slot.tray_color !== "00000000") {
+
+                            for (const slot of ams.tray) {
+                                
+                                const validSlot = Object.keys(slot).length > 3;
+
+                                // Check if slot is loaded and valid
+                                if (validSlot) {
+                                
+                                    // Check if loaded spool is a original Bambu Lab spool or a 3rd party spool
+                                    if (slot.tray_uuid !== "00000000000000000000000000000000" && slot.tray_sub_brands !== "") {
     
                                         console.debug(printer.name, printer.logFilePath,'    Slot is valid');
                                         
@@ -863,14 +871,60 @@ async function handleMqttMessage(printer, topic, message) {
                                             enableButton,
                                             printerName: printer.name,
                                             logFilePath: printer.logFilePath,
+                                            slotState: "Loaded (Bambu Lab)",
                                         });
                                     } else {
-                                        console.debug(printer.name, printer.logFilePath,'Slot is invalid, because there is a false remaining Filament state, no Serial or no color ');
+                                        
+                                        console.debug(printer.name, printer.logFilePath,'Slot is read-only and will not trigger Spoolman updates, because there is a false remaining Filament state, no Serial or no color. Maybe it is not a Bambu Lab Spool');
+                                        
+                                        // Set brand and uuid to N/A
+                                        slot.tray_sub_brands = "N/A";
+                                        slot.tray_uuid = "N/A"
+                                        
+                                        // push info as 3rd party spool
+                                        printer.spoolData.push({
+                                            amsId: (await num2letter(ams.id)) + slot.id,
+                                            slot,
+                                            mergeableSpool: null,
+                                            matchingInternalFilament: null,
+                                            matchingExternalFilament: null,
+                                            existingSpool: null,
+                                            option: "No actions available",
+                                            enableButton: "false",
+                                            printerName: printer.name,
+                                            logFilePath: printer.logFilePath,
+                                            slotState: "Loaded (3rd party)",
+                                        });
+                                        console.log(printer.name, printer.logFilePath,`    - [${await num2letter(ams.id)}${slot.id}] ${slot.tray_sub_brands} ${slot.tray_color} (${slot.remain}%) [[ ${slot.tray_uuid} ]]`);
                                     }
+                                } else {
+                                    console.debug(printer.name, printer.logFilePath,'No Data found in Slots');
+                                    
+                                    // Set data all info to 0 or N/A
+                                    slot.tray_sub_brands = "N/A";
+                                    slot.tray_weight = 0;
+                                    slot.remain = 0;
+                                    slot.tray_color ="N/A";
+                                    slot.tray_uuid = "N/A"
+                                        
+                                    // push info as not loaded slot
+                                    printer.spoolData.push({
+                                        amsId: (await num2letter(ams.id)) + slot.id,
+                                        slot,
+                                        mergeableSpool: null,
+                                        matchingInternalFilament: null,
+                                        matchingExternalFilament: null,
+                                        existingSpool: null,
+                                        option: "No actions available",
+                                        enableButton: "false",
+                                        printerName: printer.name,
+                                        logFilePath: printer.logFilePath,
+                                        slotState: "Empty",
+                                    });
+                                    console.log(printer.name, printer.logFilePath,`    - [${await num2letter(ams.id)}${slot.id}] ${slot.tray_sub_brands} ${slot.tray_color} (${slot.remain}%) [[ ${slot.tray_uuid} ]]`);
                                 }
-                            } else {
-                                console.debug(printer.name, printer.logFilePath,'No Data found in Slots');
                             }
+
                         } else {
                             console.debug(printer.name, printer.logFilePath,'Data from Slots are not valid');
                         }
