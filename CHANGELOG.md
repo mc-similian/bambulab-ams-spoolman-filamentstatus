@@ -1,4 +1,12 @@
-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------
+Version 1.0.1-Dev
+   - Add footer to Main Menu
+   - Remove "Support for..." and "For AMS" from color field
+   - Changed data display behavior in Main Menu
+      - From now on, the displayed data will be read from the spool of Spoolman instead of using the external filament database as a source.
+        This means that the filament can also be adjusted if there are any problems or errors
+   - Fixed incorrect MQTT connection status that showed 'disconnected' after one disconnect and successfull reconnect.
+-----------------------------------------------------------------------------------------------
 Version 1.0.0
    - Offical Release
    - Features:
@@ -18,6 +26,6 @@ Version 1.0.0
       - Slots that loaded 3rd party Filament are also shown but have no function
       - Special treatment for Bambu Lab Support Filament
       - minor bugfixes (reconnection error, handle recognized negative filament)
-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------
 Pre release versions are not tagged
 ----------------------------------------------------------------------------
