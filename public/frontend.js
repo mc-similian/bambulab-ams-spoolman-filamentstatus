@@ -140,7 +140,7 @@ document.addEventListener("DOMContentLoaded", () => {
             let colorName = amsSpool.slot.tray_color;
 
             if (amsSpool.matchingExternalFilament?.name) colorName = amsSpool.matchingExternalFilament?.name;
-
+            
             // Create and set up action button for the spool
             const button = document.createElement("button");
             button.type = "button";
@@ -164,18 +164,32 @@ document.addEventListener("DOMContentLoaded", () => {
                 showDialog(button, content, actionText, actionCallback);
             });
 
-            // Populate table row with spool data
-            spoolRow.innerHTML = `
-                <td>${amsSpool.amsId}</td>
-                <td>${amsSpool.slotState}</td>
-                <td>${amsSpool.slot.tray_sub_brands}</td>
-                <td>${amsSpoolRemainingWeight} g / ${amsSpool.slot.tray_weight} g (${amsSpool.slot.remain}%)</td>
-                <td style="${colorName !== 'N/A' ? `background-color: #${amsSpool.slot.tray_color}; color: ${getTextColor(amsSpool.slot.tray_color)}` : ''}">
-                    ${colorName}
-                </td>
-                <td>${amsSpool.slot.tray_uuid}</td>
-            `;
-
+            if (amsSpool.existingSpool?.filament?.name) {
+                // Populate table row with spool data
+                spoolRow.innerHTML = `
+                    <td>${amsSpool.amsId}</td>
+                    <td>${amsSpool.slotState}</td>
+                    <td>${amsSpool.slot.tray_sub_brands}</td>
+                    <td>${amsSpoolRemainingWeight} g / ${amsSpool.slot.tray_weight} g (${amsSpool.slot.remain}%)</td>
+                    <td style="background-color: #${amsSpool.existingSpool.filament.color_hex}; color: ${getTextColor(amsSpool.existingSpool.filament.color_hex)}">
+                        ${amsSpool.existingSpool.filament.name.replace("For AMS", "").replace("Support for PLA/PETG", "").replace("Support for PLA", "")}
+                    </td>
+                    <td>${amsSpool.slot.tray_uuid}</td>
+                `;
+            } else {
+            
+                // Populate table row with spool data
+                spoolRow.innerHTML = `
+                    <td>${amsSpool.amsId}</td>
+                    <td>${amsSpool.slotState}</td>
+                    <td>${amsSpool.slot.tray_sub_brands}</td>
+                    <td>${amsSpoolRemainingWeight} g / ${amsSpool.slot.tray_weight} g (${amsSpool.slot.remain}%)</td>
+                    <td style="${colorName !== 'N/A' ? `background-color: #${amsSpool.slot.tray_color}; color: ${getTextColor(amsSpool.slot.tray_color)}` : ''}">
+                        ${colorName.replace("For AMS", "").replace("Support for PLA/PETG", "").replace("Support for PLA", "")}
+                    </td>
+                    <td>${amsSpool.slot.tray_uuid}</td>
+                `;
+            }
 
             // Add the action button to the row
             const buttonCell = document.createElement("td");

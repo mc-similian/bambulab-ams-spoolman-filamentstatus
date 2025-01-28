@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 // loading .env
 config();
 
+const version = "1.0.1";
 const app = express();
 const PORT = 4000; // Port for backend --> also used by frontend for Web UI
 
@@ -578,10 +579,22 @@ async function mergeSpool(spoolData) {
 }
 
 async function haveSpoolDataChanged(spools, lastSpoolData) {
+    
+    const length = spools.length !== lastSpoolData.length;
+                   
+       const dataChanged = !spools.every((spool, index) => {
+       const lastSpool = lastSpoolData[index];
+       const isEqual = spool.extra.tag === lastSpool.extra.tag &&
+                       spool.remaining_weight === lastSpool.remaining_weight &&
+                       JSON.stringify(spool.filament) === JSON.stringify(lastSpool.filament);
+       
+       return isEqual;
+       });
+    
     // compare last Spool Data with new fetched data to see if there are any changes
-    return spools.length !== lastSpoolData.length ||
-           !spools.every((spool, index) => spool.extra.tag === lastSpoolData[index].extra.tag && spool.remaining_weight === lastSpoolData[index].remaining_weight);
+    return length || dataChanged;
 }
+
 
 // Format given Date to readable date
 function formatDate(date) {
@@ -616,6 +629,7 @@ async function handleMqttMessage(printer, topic, message) {
     printer.blockMqttUpdates = true;
         
     try {
+        printer.mqttStatus = "Connected";
         const data = JSON.parse(message);
         console.debug(printer.name, printer.logFilePath,`Processing MQTT message for Printer: ${printer.id}`);
         console.debug(printer.name, printer.logFilePath,'Check if message contains AMS Data');
@@ -635,6 +649,8 @@ async function handleMqttMessage(printer, topic, message) {
                 console.debug(printer.name, printer.logFilePath,'Registered Spools:');
                 console.debug(printer.name, printer.logFilePath,JSON.stringify(spools));
                 
+                if (lastSpoolData.length === 0) lastSpoolData = spools;
+                
                 const externalFilaments = await getSpoolmanExternalFilaments();
                 
                 const internalFilaments = await getSpoolmanInternalFilaments();
@@ -647,15 +663,23 @@ async function handleMqttMessage(printer, topic, message) {
                 // Processing AMS Data for valid options
                 const processedAmsData = data.print.ams.ams.map(ams => ({
                     ...ams,
-                    tray: ams.tray.map(slot => ({
-                        ...slot,
-                        // set negative ramaining filament to 0
-                        remain: slot.remain < 0 ? 0 : slot.remain,
-                        // Adjust PETG Translucent color stats
-                        tray_color: slot.tray_sub_brands === "PETG Translucent" && slot.tray_color === "00000000"
-                            ? "FFFFFF00"
-                            : slot.tray_color
-                    }))
+                    tray: ams.tray.map(slot => {
+                        // Correct false color PETG Translucent
+                        const isPetgTranslucent = slot.tray_sub_brands === "PETG Translucent" && slot.tray_color === "00000000";
+                        const updatedTrayColor = isPetgTranslucent ? "FFFFFF00" : (slot.tray_color ?? "N/A");
+
+                        // Set remaining Filament to 0 if slot indicates it as negative
+                        if (!slot.remain || slot.remain < 0) slot.remain = 0;
+
+                        return {
+                            ...slot,
+                            remain: slot.remain,
+                            tray_color: updatedTrayColor,
+                            tray_sub_brands: slot.tray_sub_brands === "" ? "N/A" : (slot.tray_sub_brands ?? "N/A"),
+                            tray_weight: slot.tray_weight ?? 0,
+                            tray_uuid: slot.tray_uuid === "000000000000000000000000000000000" ? "N/A" : (slot.tray_uuid ?? "N/A"),
+                        };
+                    })
                 }));
                 
                 console.debug(printer.name, printer.logFilePath,'Check if AMS Data is valid and check if Spoolman or AMS Data got any changes');
@@ -685,22 +709,18 @@ async function handleMqttMessage(printer, topic, message) {
 
                             for (const slot of ams.tray) {
                                 
-                                const validSlot = Object.keys(slot).length > 3;
+                                const validSlot = Object.keys(slot).length > 6;
+                                
+                                originalConsoleLog(Object.keys(slot).length);
 
                                 // Check if slot is loaded and valid
                                 if (validSlot) {
                                 
                                     // Check if loaded spool is a original Bambu Lab spool or a 3rd party spool
-                                    if (slot.tray_uuid !== "00000000000000000000000000000000" && slot.tray_sub_brands !== "") {
+                                    if (slot.tray_uuid !== "N/A" && slot.tray_sub_brands !== "N/A") {
     
                                         console.debug(printer.name, printer.logFilePath,'    Slot is valid');
-                                        
-                                        // Set remaining Filament to 0 if slot indicates it as negative
-                                        if (slot.remain < 0) {
-                                            console.debug(printer.name, printer.logFilePath,'    Set remaining Filament to 0 because AMS indicates it as negative value');
-                                            slot.remain = 0;
-                                        }
-                                                                                        
+                                                                                                                                
                                         let found = false;
                                         let remainingWeight = "";
                                         let mergeableSpool = null;
@@ -877,10 +897,6 @@ async function handleMqttMessage(printer, topic, message) {
                                         
                                         console.debug(printer.name, printer.logFilePath,'Slot is read-only and will not trigger Spoolman updates, because there is a false remaining Filament state, no Serial or no color. Maybe it is not a Bambu Lab Spool');
                                         
-                                        // Set brand and uuid to N/A
-                                        slot.tray_sub_brands = "N/A";
-                                        slot.tray_uuid = "N/A"
-                                        
                                         // push info as 3rd party spool
                                         printer.spoolData.push({
                                             amsId: (await num2letter(ams.id)) + slot.id,
@@ -899,14 +915,7 @@ async function handleMqttMessage(printer, topic, message) {
                                     }
                                 } else {
                                     console.debug(printer.name, printer.logFilePath,'No Data found in Slots');
-                                    
-                                    // Set data all info to 0 or N/A
-                                    slot.tray_sub_brands = "N/A";
-                                    slot.tray_weight = 0;
-                                    slot.remain = 0;
-                                    slot.tray_color ="N/A";
-                                    slot.tray_uuid = "N/A"
-                                        
+
                                     // push info as not loaded slot
                                     printer.spoolData.push({
                                         amsId: (await num2letter(ams.id)) + slot.id,
@@ -1006,7 +1015,6 @@ async function setupMqtt(printer) {
 
 // starting logic for initialize all needed stuff and the connection to spoolman and mqtt sessions
 async function starting() {
-    
     if (printers) {
         
         // add logpath to printer object
@@ -1180,6 +1188,7 @@ app.get('/api/logs/:printerId', (req, res) => {
 
 // Start the backend server and initialize configuration
 app.listen(PORT, "0.0.0.0", () => {
+    console.log("Server", serverLogFilePath, `Version: ${version}`);
     console.log("Server", serverLogFilePath, `Setting up configuration...`);
     starting(); // Begin application setup process
 });

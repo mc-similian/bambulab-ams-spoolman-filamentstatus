@@ -240,3 +240,35 @@ body.dark-mode #log-button {
   color: #f1f1f1;
   border: 1px solid #555;
 }
+
+.footer {
+  position: absolute;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 10px 0;
+  width: 99%;
+}
+
+.footer .row {
+  justify-content: center;
+}
+
+.footer a {
+  color: #007bff; /* Farbe der Links */
+  text-decoration: none;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
+
+.hide-footer .footer {
+  display: none;
+}
+
+.show-footer .footer {
+  display: flex;
+}
