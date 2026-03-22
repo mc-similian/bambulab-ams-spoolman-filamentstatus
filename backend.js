@@ -729,7 +729,11 @@ async function createFilamentAndSpool(spoolData) {
 async function mergeSpool(spoolData) {
 
     // prepare data for post
+    const correctedRemain = correctRemainInt(spoolData.slot.remain, spoolData.slot.tray_weight);
+    const remainingWeight = Math.round((correctedRemain / 100) * Number(spoolData.slot.tray_weight));
     const postData = {
+        // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet
+        ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
         extra: {
             tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
         }
@@ -1150,7 +1154,10 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                    console.log(printer.name, printer.logFilePath, `    Found mergeable Spool => Spoolman Spool ID: ${mergeableSpool.id}, Material: ${mergeableSpool.filament.material}, Color: ${mergeableSpool.filament.name}`);
 	
 	                                                    const multipleMatches = slot._mergeableSpools && slot._mergeableSpools.length > 1;
-	                                                    if (automatic && !multipleMatches) {
+	                                                    const remainReported = correctRemainInt(slot.remain, slot.tray_weight) > 0;
+	                                                    if (automatic && !multipleMatches && !remainReported) {
+	                                                        console.log(printer.name, printer.logFilePath, `    Waiting for AMS to report filament level before merging...`);
+	                                                    } else if (automatic && !multipleMatches) {
 	                                                        console.log(printer.name, printer.logFilePath, `    merging Spool...`);
 	                                                        let info = [];
 	                                                        info.push({
