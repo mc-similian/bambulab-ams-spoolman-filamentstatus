@@ -8,7 +8,7 @@ RUN apk update && apk add --no-cache tzdata mosquitto-clients openssl jq
 WORKDIR /app
 
 # Copy package files and install dependencies
-COPY package.json package-lock.json ./
+COPY package.json ./
 RUN mkdir -p /app/logs /app/printers && chmod -R 777 /app/logs /app/printers
 RUN npm install
 
