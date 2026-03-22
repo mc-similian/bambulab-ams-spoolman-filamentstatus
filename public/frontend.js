@@ -377,7 +377,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 </table>
             `;
         } else if (button.textContent === "Merge Spool") {
-            let remain = (amsSpool.slot.remain / 100) * amsSpool.slot.tray_weight;
+            const candidates = (amsSpool.mergeableSpools && amsSpool.mergeableSpools.length > 0)
+                ? amsSpool.mergeableSpools
+                : (amsSpool.mergeableSpool ? [amsSpool.mergeableSpool] : []);
+
+            const spoolOptions = candidates.map((s, i) =>
+                `<option value="${i}">Spool-ID ${s.id} - ${s.filament.material} - ${s.filament.name} - ${s.remaining_weight} g remaining</option>`
+            ).join('');
 
             return `
                 <p>Do you really want to merge this Spool with an existing Spool in Spoolman?</p>
@@ -388,7 +394,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     </tr>
                     <tr>
                         <th>Spoolman Spool:</th>
-                        <td>Spool-ID ${amsSpool.mergeableSpool.id} - Bambu Lab - ${amsSpool.mergeableSpool.filament.material} - ${amsSpool.mergeableSpool.filament.name} - ${remain} g left on spool</td>
+                        <td>
+                            <select id="mergeable-spool-select" style="width:100%;padding:4px;">
+                                ${spoolOptions}
+                            </select>
+                        </td>
                     </tr>
                 </table>
             `;
@@ -462,10 +472,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const endpoint = endpointMap[button.textContent];
         if (!endpoint) return;
 
+        const payload = Object.assign({}, amsSpool);
+
+        if (button.textContent === "Merge Spool") {
+            const select = document.getElementById("mergeable-spool-select");
+            if (select) {
+                const candidates = (amsSpool.mergeableSpools && amsSpool.mergeableSpools.length > 0)
+                    ? amsSpool.mergeableSpools
+                    : (amsSpool.mergeableSpool ? [amsSpool.mergeableSpool] : []);
+                payload.mergeableSpool = candidates[parseInt(select.value, 10)] || amsSpool.mergeableSpool;
+            }
+        }
+
         fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(amsSpool)
+            body: JSON.stringify(payload)
         });
 
         button.textContent = "No actions available";

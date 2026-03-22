@@ -563,7 +563,7 @@ function findMergeableSpool(amsSpool, allSpools) {
     });
 
     // Check if any matching spool can be merged based on weight tolerance
-    return matchingSpools.find(spoolmanSpool => {
+    return matchingSpools.filter(spoolmanSpool => {
         const tag = (spoolmanSpool.extra?.tag || '').replace(/"/g, ''); // Remove quotes from the "tag"
 
         const spoolRemainingWeight = (amsSpool.remain / 100) * spoolmanSpool.initial_weight;
@@ -1056,9 +1056,12 @@ async function handleMqttMessage(printer, topic, message) {
 	
 	                                                if (spools.length !== 0) {
 	                                                    // Try to find mergeable spools
-	                                                    mergeableSpool = await findMergeableSpool(slot, spools);
+	                                                    const mergeableSpools = await findMergeableSpool(slot, spools);
+	                                                    mergeableSpool = mergeableSpools[0] || null;
+	                                                    slot._mergeableSpools = mergeableSpools;
 	                                                } else {
-	                                                    mergeableSpool == null;
+	                                                    mergeableSpool = null;
+	                                                    slot._mergeableSpools = [];
 	                                                }
 	
 	                                                console.debug(printer.name, printer.logFilePath, ' Check if Spool is mergeable with an existing Spool');
@@ -1138,7 +1141,8 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                } else {
 	                                                    console.log(printer.name, printer.logFilePath, `    Found mergeable Spool => Spoolman Spool ID: ${mergeableSpool.id}, Material: ${mergeableSpool.filament.material}, Color: ${mergeableSpool.filament.name}`);
 	
-	                                                    if (automatic) {
+	                                                    const multipleMatches = slot._mergeableSpools && slot._mergeableSpools.length > 1;
+	                                                    if (automatic && !multipleMatches) {
 	                                                        console.log(printer.name, printer.logFilePath, `    merging Spool...`);
 	                                                        let info = [];
 	                                                        info.push({
@@ -1158,12 +1162,15 @@ async function handleMqttMessage(printer, topic, message) {
 															        await mergeSpool(info[0]);
 															    }
 															}
+	                                                    } else if (automatic && multipleMatches) {
+	                                                        console.log(printer.name, printer.logFilePath, `    Multiple mergeable Spools found (${slot._mergeableSpools.length}), waiting for manual selection...`);
 	                                                    }
 	                                                    option = "Merge Spool";
 	                                                }
 	
-	                                                // Enable button for manual actions
-	                                                if (!automatic) enableButton = "true";
+	                                                // Enable button for manual actions (always when multiple spool candidates exist)
+	                                                const _multipleMatches = slot._mergeableSpools && slot._mergeableSpools.length > 1;
+	                                                if (!automatic || _multipleMatches) enableButton = "true";
 	                                                printer.lastUpdateTime = new Date();
 	                                            }
 	
@@ -1175,6 +1182,7 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                amsId: await convertAMSandSlot(ams.id, slot.id),
 	                                                slot,
 	                                                mergeableSpool,
+	                                                mergeableSpools: slot._mergeableSpools || [],
 	                                                matchingInternalFilament,
 	                                                matchingExternalFilament,
 	                                                existingSpool,
