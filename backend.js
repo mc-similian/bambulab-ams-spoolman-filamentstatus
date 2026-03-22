@@ -609,7 +609,8 @@ async function createSpool(spoolData) {
     const postData = {
         filament_id: Number(spoolData.matchingInternalFilament.id),  // Set the internal filament ID
         initial_weight: Number(spoolData.slot.tray_weight),  // Set the tray weight as initial weight
-        remaining_weight: remainingWeight,  // Set the current remaining weight based on AMS fill level
+        // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet and Spoolman should default to initial_weight
+        ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
         first_used: Date.now(),  // Set the timestamp for the first use
         extra: {
             tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
@@ -694,7 +695,8 @@ async function createFilamentAndSpool(spoolData) {
             const spoolPayload = {
                 filament_id: filamentId,
                 initial_weight: spoolData.slot.tray_weight,
-                remaining_weight: remainingWeight,  // Set the current remaining weight based on AMS fill level
+                // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet and Spoolman should default to initial_weight
+                ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
                 first_used: Date.now(),
                 extra: {
                     tag: `\"${spoolData.slot.tray_uuid}\"`
