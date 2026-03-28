@@ -334,6 +334,48 @@ async function getSpoolmanExternalFilaments() {
     }
 }
 
+// --- Spoolman Location tracking ---
+const locationCache = {}; // maps location name -> location id
+
+async function getAmsLocationName(printerName, amsRawId) {
+    const amsLetter = await convertAMSandSlot(amsRawId, null);
+    return `${printerName} AMS ${amsLetter}`;
+}
+
+async function getOrCreateLocationId(locationName) {
+    if (locationCache[locationName]) return locationCache[locationName];
+
+    try {
+        const response = await got(`${SPOOLMAN_URL}/api/v1/location`, { responseType: 'json' });
+        const locations = response.body;
+        const existing = locations.find(loc => loc.name === locationName);
+        if (existing) {
+            locationCache[locationName] = existing.id;
+            return existing.id;
+        }
+
+        const createResp = await got.post(`${SPOOLMAN_URL}/api/v1/location`, {
+            json: { name: locationName },
+            responseType: 'json',
+        });
+        locationCache[locationName] = createResp.body.id;
+        console.log("Server", serverLogFilePath, `Created Spoolman location: "${locationName}" (ID: ${createResp.body.id})`);
+        return createResp.body.id;
+    } catch (error) {
+        console.error("Server", serverLogFilePath, `Failed to get/create location "${locationName}": ${error.message}`);
+        return null;
+    }
+}
+
+function parseAmsRawId(amsId) {
+    if (!amsId) return 0;
+    if (amsId.startsWith("HT-")) {
+        const letter = amsId.replace("HT-", "").charAt(0);
+        return 128 + "ABCDEFGH".indexOf(letter);
+    }
+    return "ABCDEFGH".indexOf(amsId.charAt(0));
+}
+
 // Fetching actual Vendor from Spoolman, if Bambu Lab not exists as a Vendor, it will be created
 async function checkAndSetVendor() {
     console.log("Server", serverLogFilePath, 'Checking Vendors...');
@@ -606,12 +648,18 @@ async function createSpool(spoolData) {
     // prepare data for post
     const correctedRemain = correctRemainInt(spoolData.slot.remain, spoolData.slot.tray_weight);
     const remainingWeight = Math.round((correctedRemain / 100) * Number(spoolData.slot.tray_weight));
+
+    // Resolve AMS location
+    const locationName = spoolData.amsRawId != null ? await getAmsLocationName(spoolData.printerName, spoolData.amsRawId) : null;
+    const locationId = locationName ? await getOrCreateLocationId(locationName) : null;
+
     const postData = {
         filament_id: Number(spoolData.matchingInternalFilament.id),  // Set the internal filament ID
         initial_weight: Number(spoolData.slot.tray_weight),  // Set the tray weight as initial weight
         // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet and Spoolman should default to initial_weight
         ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
         first_used: Date.now(),  // Set the timestamp for the first use
+        ...(locationId && { location_id: locationId }),
         extra: {
             tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
         }
@@ -692,12 +740,18 @@ async function createFilamentAndSpool(spoolData) {
             // Prepare the spool data payload
             const correctedRemain = correctRemainInt(spoolData.slot.remain, spoolData.slot.tray_weight);
             const remainingWeight = Math.round((correctedRemain / 100) * Number(spoolData.slot.tray_weight));
+
+            // Resolve AMS location
+            const locationName = spoolData.amsRawId != null ? await getAmsLocationName(spoolData.printerName, spoolData.amsRawId) : null;
+            const locationId = locationName ? await getOrCreateLocationId(locationName) : null;
+
             const spoolPayload = {
                 filament_id: filamentId,
                 initial_weight: spoolData.slot.tray_weight,
                 // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet and Spoolman should default to initial_weight
                 ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
                 first_used: Date.now(),
+                ...(locationId && { location_id: locationId }),
                 extra: {
                     tag: `\"${spoolData.slot.tray_uuid}\"`
                 }
@@ -731,9 +785,15 @@ async function mergeSpool(spoolData) {
     // prepare data for post
     const correctedRemain = correctRemainInt(spoolData.slot.remain, spoolData.slot.tray_weight);
     const remainingWeight = Math.round((correctedRemain / 100) * Number(spoolData.slot.tray_weight));
+
+    // Resolve AMS location
+    const locationName = spoolData.amsRawId != null ? await getAmsLocationName(spoolData.printerName, spoolData.amsRawId) : null;
+    const locationId = locationName ? await getOrCreateLocationId(locationName) : null;
+
     const postData = {
         // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet
         ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
+        ...(locationId && { location_id: locationId }),
         extra: {
             tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
         }
@@ -1024,10 +1084,15 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                        // end guard
 	                                                        slot.remain = correctRemainInt(slot.remain, slot.tray_weight);
 	                                                        remainingWeight = Math.round((slot.remain / 100) * slot.tray_weight);
-	
+
+	                                                        // Resolve AMS location
+	                                                        const __locName = await getAmsLocationName(printer.name, ams.id);
+	                                                        const __locId = await getOrCreateLocationId(__locName);
+
 	                                                        const patchData = {
 	                                                            remaining_weight: remainingWeight,
-	                                                            last_used: currentTime
+	                                                            last_used: currentTime,
+	                                                            ...(__locId && { location_id: __locId }),
 	                                                        };
 	
 	                                                        // Debug URL and Payload
@@ -1102,6 +1167,7 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                                let info = [];
 	                                                                info.push({
 	                                                                    amsId: await convertAMSandSlot(ams.id, slot.id),
+	                                                                    amsRawId: ams.id,
 	                                                                    slot,
 	                                                                    matchingInternalFilament,
 	                                                                    matchingExternalFilament,
@@ -1129,6 +1195,7 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                                let info = [];
 	                                                                info.push({
 	                                                                    amsId: await convertAMSandSlot(ams.id, slot.id),
+	                                                                    amsRawId: ams.id,
 	                                                                    slot,
 	                                                                    matchingInternalFilament,
 	                                                                    matchingExternalFilament,
@@ -1162,6 +1229,7 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                        let info = [];
 	                                                        info.push({
 	                                                            amsId: await convertAMSandSlot(ams.id, slot.id),
+	                                                            amsRawId: ams.id,
 	                                                            slot,
 	                                                            mergeableSpool,
 	                                                            matchingInternalFilament,
@@ -1221,6 +1289,27 @@ async function handleMqttMessage(printer, topic, message) {
 	
 	                                            console.debug(printer.name, printer.logFilePath, 'Slot is read-only and will not trigger Spoolman updates, because there is a false remaining Filament state, no Serial or no color. Maybe it is not a Bambu Lab Spool');
 	
+
+	                                            // Clear Spoolman location for the spool that was previously in this slot
+	                                            {
+	                                                const __amsIdLoc = await convertAMSandSlot(ams.id, slot.id);
+	                                                const prevSlotData = prevByAmsId[__amsIdLoc];
+	                                                const prevSpool = prevSlotData?.existingSpool || prevSlotData?.mergeableSpool;
+	                                                if (prevSpool?.id && prevSlotData?.slotState === "Loaded (Bambu Lab)") {
+	                                                    try {
+	                                                        const locName = await getAmsLocationName(printer.name, ams.id);
+	                                                        const expectedLocId = await getOrCreateLocationId(locName);
+	                                                        const resp = await got(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { responseType: 'json' });
+	                                                        if (expectedLocId && resp.body.location?.id === expectedLocId) {
+	                                                            await got.patch(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { json: { location_id: null } });
+	                                                            console.log(printer.name, printer.logFilePath, `    Cleared location for Spool-ID ${prevSpool.id} (removed from ${locName})`);
+	                                                        }
+	                                                    } catch (e) {
+	                                                        console.error(printer.name, printer.logFilePath, '    Failed to clear spool location:', e.message);
+	                                                    }
+	                                                }
+	                                            }
+
 	                                            slot.tray_sub_brands = slot.tray_type;
 	
 	                                            // push info as 3rd party spool
@@ -1249,6 +1338,27 @@ async function handleMqttMessage(printer, topic, message) {
 	                                        }
 	                                    } else {
 	                                        console.debug(printer.name, printer.logFilePath, 'No Data found in Slots');
+
+	                                        // Clear Spoolman location for the spool that was previously in this slot
+	                                        {
+	                                            const __amsIdLoc = await convertAMSandSlot(ams.id, slot.id);
+	                                            const prevSlotData = prevByAmsId[__amsIdLoc];
+	                                            const prevSpool = prevSlotData?.existingSpool || prevSlotData?.mergeableSpool;
+	                                            if (prevSpool?.id && prevSlotData?.slotState === "Loaded (Bambu Lab)") {
+	                                                try {
+	                                                    const locName = await getAmsLocationName(printer.name, ams.id);
+	                                                    const expectedLocId = await getOrCreateLocationId(locName);
+	                                                    const resp = await got(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { responseType: 'json' });
+	                                                    if (expectedLocId && resp.body.location?.id === expectedLocId) {
+	                                                        await got.patch(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { json: { location_id: null } });
+	                                                        console.log(printer.name, printer.logFilePath, `    Cleared location for Spool-ID ${prevSpool.id} (removed from ${locName})`);
+	                                                    }
+	                                                } catch (e) {
+	                                                    console.error(printer.name, printer.logFilePath, '    Failed to clear spool location:', e.message);
+	                                                }
+	                                            }
+	                                        }
+
 	
 	                                        // push info as not loaded slot
 	                                        const newUiSpool = {
@@ -1646,6 +1756,7 @@ app.get("/api/printers", (req, res) => {
 // REST API endpoint to merge a spool
 app.post("/api/mergeSpool", async (req, res) => {
   try {
+    if (req.body.amsId && req.body.amsRawId == null) req.body.amsRawId = parseAmsRawId(req.body.amsId);
     await mergeSpool(req.body);
     res.status(200).json({ ok: true });
   } catch (err) {
@@ -1657,6 +1768,7 @@ app.post("/api/mergeSpool", async (req, res) => {
 // REST API endpoint to create a new spool
 app.post("/api/createSpool", async (req, res) => {
   try {
+    if (req.body.amsId && req.body.amsRawId == null) req.body.amsRawId = parseAmsRawId(req.body.amsId);
     await createSpool(req.body);
     res.status(200).json({ ok: true });
   } catch (err) {
@@ -1668,6 +1780,7 @@ app.post("/api/createSpool", async (req, res) => {
 // REST API endpoint to create a new spool along with filament
 app.post("/api/createSpoolWithFilament", async (req, res) => {
   try {
+    if (req.body.amsId && req.body.amsRawId == null) req.body.amsRawId = parseAmsRawId(req.body.amsId);
     await createFilamentAndSpool(req.body);
     res.status(200).json({ ok: true });
   } catch (err) {
