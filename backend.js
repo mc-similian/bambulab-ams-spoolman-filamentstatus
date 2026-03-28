@@ -335,36 +335,11 @@ async function getSpoolmanExternalFilaments() {
 }
 
 // --- Spoolman Location tracking ---
-const locationCache = {}; // maps location name -> location id
+// Spoolman uses "location" as a plain string field on spools (not an ID reference).
 
 async function getAmsLocationName(printerName, amsRawId) {
     const amsLetter = await convertAMSandSlot(amsRawId, null);
     return `${printerName} AMS ${amsLetter}`;
-}
-
-async function getOrCreateLocationId(locationName) {
-    if (locationCache[locationName]) return locationCache[locationName];
-
-    try {
-        const response = await got(`${SPOOLMAN_URL}/api/v1/location`, { responseType: 'json' });
-        const locations = response.body;
-        const existing = locations.find(loc => loc.name === locationName);
-        if (existing) {
-            locationCache[locationName] = existing.id;
-            return existing.id;
-        }
-
-        const createResp = await got.post(`${SPOOLMAN_URL}/api/v1/location`, {
-            json: { name: locationName },
-            responseType: 'json',
-        });
-        locationCache[locationName] = createResp.body.id;
-        console.log("Server", serverLogFilePath, `Created Spoolman location: "${locationName}" (ID: ${createResp.body.id})`);
-        return createResp.body.id;
-    } catch (error) {
-        console.error("Server", serverLogFilePath, `Failed to get/create location "${locationName}": ${error.message}`);
-        return null;
-    }
 }
 
 function parseAmsRawId(amsId) {
@@ -651,7 +626,6 @@ async function createSpool(spoolData) {
 
     // Resolve AMS location
     const locationName = spoolData.amsRawId != null ? await getAmsLocationName(spoolData.printerName, spoolData.amsRawId) : null;
-    const locationId = locationName ? await getOrCreateLocationId(locationName) : null;
 
     const postData = {
         filament_id: Number(spoolData.matchingInternalFilament.id),  // Set the internal filament ID
@@ -659,7 +633,7 @@ async function createSpool(spoolData) {
         // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet and Spoolman should default to initial_weight
         ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
         first_used: Date.now(),  // Set the timestamp for the first use
-        ...(locationId && { location_id: locationId }),
+        ...(locationName && { location: locationName }),
         extra: {
             tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
         }
@@ -743,7 +717,6 @@ async function createFilamentAndSpool(spoolData) {
 
             // Resolve AMS location
             const locationName = spoolData.amsRawId != null ? await getAmsLocationName(spoolData.printerName, spoolData.amsRawId) : null;
-            const locationId = locationName ? await getOrCreateLocationId(locationName) : null;
 
             const spoolPayload = {
                 filament_id: filamentId,
@@ -751,7 +724,7 @@ async function createFilamentAndSpool(spoolData) {
                 // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet and Spoolman should default to initial_weight
                 ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
                 first_used: Date.now(),
-                ...(locationId && { location_id: locationId }),
+                ...(locationName && { location: locationName }),
                 extra: {
                     tag: `\"${spoolData.slot.tray_uuid}\"`
                 }
@@ -788,12 +761,11 @@ async function mergeSpool(spoolData) {
 
     // Resolve AMS location
     const locationName = spoolData.amsRawId != null ? await getAmsLocationName(spoolData.printerName, spoolData.amsRawId) : null;
-    const locationId = locationName ? await getOrCreateLocationId(locationName) : null;
 
     const postData = {
         // Only set remaining_weight if remain > 0; if 0 the AMS hasn't tracked usage yet
         ...(correctedRemain > 0 && { remaining_weight: remainingWeight }),
-        ...(locationId && { location_id: locationId }),
+        ...(locationName && { location: locationName }),
         extra: {
             tag: `\"${spoolData.slot.tray_uuid}\"`  // Set the tray UUID as tag
         }
@@ -1087,12 +1059,11 @@ async function handleMqttMessage(printer, topic, message) {
 
 	                                                        // Resolve AMS location
 	                                                        const __locName = await getAmsLocationName(printer.name, ams.id);
-	                                                        const __locId = await getOrCreateLocationId(__locName);
 
 	                                                        const patchData = {
 	                                                            remaining_weight: remainingWeight,
 	                                                            last_used: currentTime,
-	                                                            ...(__locId && { location_id: __locId }),
+	                                                            ...(__locName && { location: __locName }),
 	                                                        };
 	
 	                                                        // Debug URL and Payload
@@ -1298,10 +1269,9 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                if (prevSpool?.id && prevSlotData?.slotState === "Loaded (Bambu Lab)") {
 	                                                    try {
 	                                                        const locName = await getAmsLocationName(printer.name, ams.id);
-	                                                        const expectedLocId = await getOrCreateLocationId(locName);
-	                                                        const resp = await got(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { responseType: 'json' });
-	                                                        if (expectedLocId && resp.body.location?.id === expectedLocId) {
-	                                                            await got.patch(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { json: { location_id: null } });
+	                                                        	                                                        const resp = await got(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { responseType: 'json' });
+	                                                        if (locName && resp.body.location === locName) {
+	                                                            await got.patch(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { json: { location: null } });
 	                                                            console.log(printer.name, printer.logFilePath, `    Cleared location for Spool-ID ${prevSpool.id} (removed from ${locName})`);
 	                                                        }
 	                                                    } catch (e) {
@@ -1347,10 +1317,9 @@ async function handleMqttMessage(printer, topic, message) {
 	                                            if (prevSpool?.id && prevSlotData?.slotState === "Loaded (Bambu Lab)") {
 	                                                try {
 	                                                    const locName = await getAmsLocationName(printer.name, ams.id);
-	                                                    const expectedLocId = await getOrCreateLocationId(locName);
-	                                                    const resp = await got(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { responseType: 'json' });
-	                                                    if (expectedLocId && resp.body.location?.id === expectedLocId) {
-	                                                        await got.patch(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { json: { location_id: null } });
+	                                                    	                                                    const resp = await got(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { responseType: 'json' });
+	                                                    if (locName && resp.body.location === locName) {
+	                                                        await got.patch(`${SPOOLMAN_URL}/api/v1/spool/${prevSpool.id}`, { json: { location: null } });
 	                                                        console.log(printer.name, printer.logFilePath, `    Cleared location for Spool-ID ${prevSpool.id} (removed from ${locName})`);
 	                                                    }
 	                                                } catch (e) {
