@@ -628,3 +628,86 @@ async function toggleMonitoring() {
         method: "POST"
     });
 }
+
+// --- Home Assistant MQTT Settings ---
+(function() {
+    const dialog = document.getElementById("ha-mqtt-dialog");
+    if (!dialog) return;
+
+    const btn = document.getElementById("ha-mqtt-settings-btn");
+    const closeBtn = document.getElementById("ha-mqtt-close");
+    const saveBtn = document.getElementById("ha-mqtt-save");
+    const testBtn = document.getElementById("ha-mqtt-test");
+    const msgEl = document.getElementById("ha-mqtt-msg");
+
+    btn.addEventListener("click", async () => {
+        msgEl.textContent = "";
+        try {
+            const res = await fetch("./api/ha-mqtt/config");
+            const cfg = await res.json();
+            document.getElementById("ha-mqtt-enabled").checked = cfg.enabled;
+            document.getElementById("ha-mqtt-host").value = cfg.host || "";
+            document.getElementById("ha-mqtt-port").value = cfg.port || 1883;
+            document.getElementById("ha-mqtt-username").value = cfg.username || "";
+            document.getElementById("ha-mqtt-password").value = cfg.password || "";
+            document.getElementById("ha-mqtt-base-topic").value = cfg.baseTopic || "bambulab-ams-spoolman";
+            document.getElementById("ha-mqtt-tls").checked = !!cfg.tls;
+        } catch {}
+        dialog.showModal();
+    });
+
+    closeBtn.addEventListener("click", () => dialog.close());
+
+    saveBtn.addEventListener("click", async () => {
+        msgEl.textContent = "Saving...";
+        const cfg = {
+            enabled: document.getElementById("ha-mqtt-enabled").checked,
+            host: document.getElementById("ha-mqtt-host").value.trim(),
+            port: parseInt(document.getElementById("ha-mqtt-port").value, 10) || 1883,
+            username: document.getElementById("ha-mqtt-username").value.trim(),
+            password: document.getElementById("ha-mqtt-password").value,
+            baseTopic: document.getElementById("ha-mqtt-base-topic").value.trim() || "bambulab-ams-spoolman",
+            tls: document.getElementById("ha-mqtt-tls").checked,
+        };
+        try {
+            const res = await fetch("./api/ha-mqtt/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(cfg),
+            });
+            const result = await res.json();
+            msgEl.textContent = result.ok ? `Saved! Status: ${result.status}` : "Save failed";
+            fetchHaMqttStatus();
+        } catch (err) {
+            msgEl.textContent = `Error: ${err.message}`;
+        }
+    });
+
+    testBtn.addEventListener("click", async () => {
+        msgEl.textContent = "Testing...";
+        try {
+            const res = await fetch("./api/ha-mqtt/test", { method: "POST" });
+            const result = await res.json();
+            msgEl.textContent = result.ok ? "Connection successful!" : `Test failed: ${result.error || "unknown"}`;
+        } catch (err) {
+            msgEl.textContent = `Error: ${err.message}`;
+        }
+    });
+})();
+
+async function fetchHaMqttStatus() {
+    try {
+        const res = await fetch("./api/ha-mqtt/status");
+        const data = await res.json();
+        const el = document.getElementById("ha-mqtt-status");
+        if (el) {
+            const icon = data.status === "Connected" ? " ✅" : " ❌";
+            const label = data.enabled ? data.status : "Disabled";
+            el.textContent = label + icon;
+        }
+    } catch {}
+}
+
+// Poll HA MQTT status every 30 seconds
+fetchHaMqttStatus();
+setInterval(fetchHaMqttStatus, 30000);

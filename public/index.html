@@ -22,6 +22,7 @@
          <a id="log-button" onclick="redirectToLogs('server')">Server Logs</a>
       </div>
     </div>
+    <button class="dropdown-button" id="ha-mqtt-settings-btn">HA MQTT Settings</button>
     <!-- Dark Mode Button -->
     <button id="dark-mode-toggle">
         <img id="dark-mode-icon" src="https://img.icons8.com/ios-glyphs/30/moon-symbol.png" alt="Toggle Dark Mode">
@@ -36,6 +37,7 @@
       <p>MQTT connection to printer: <span id="mqtt-status"></span></p>
       <p>Printer Serial Number: <span id="printer-serial"></span></p>
       <p>Mode: <span id="mode"></span></p>
+      <p>Home Assistant MQTT: <span id="ha-mqtt-status"></span></p>
       <p>Last MQTT update: <span id="last-mqtt-update"></span></p>
 	  <p class="status-row-split">
 	    <span>
@@ -62,6 +64,48 @@
   </footer>
 
   <script src="frontend.js"></script>
+
+  <dialog id="ha-mqtt-dialog">
+    <h3 style="text-align:center;">Home Assistant MQTT Settings</h3>
+    <div id="ha-mqtt-form-content">
+      <table>
+        <tr>
+          <th>Enabled</th>
+          <td><label class="switch"><input type="checkbox" id="ha-mqtt-enabled"><span class="slider round"></span></label></td>
+        </tr>
+        <tr>
+          <th>Broker Host</th>
+          <td><input type="text" id="ha-mqtt-host" placeholder="e.g. 192.168.1.100" style="width:100%;padding:4px;box-sizing:border-box;"></td>
+        </tr>
+        <tr>
+          <th>Broker Port</th>
+          <td><input type="number" id="ha-mqtt-port" value="1883" style="width:100%;padding:4px;box-sizing:border-box;"></td>
+        </tr>
+        <tr>
+          <th>Username</th>
+          <td><input type="text" id="ha-mqtt-username" placeholder="optional" style="width:100%;padding:4px;box-sizing:border-box;"></td>
+        </tr>
+        <tr>
+          <th>Password</th>
+          <td><input type="password" id="ha-mqtt-password" placeholder="optional" style="width:100%;padding:4px;box-sizing:border-box;"></td>
+        </tr>
+        <tr>
+          <th>Base Topic</th>
+          <td><input type="text" id="ha-mqtt-base-topic" value="bambulab-ams-spoolman" style="width:100%;padding:4px;box-sizing:border-box;"></td>
+        </tr>
+        <tr>
+          <th>TLS</th>
+          <td><label class="switch"><input type="checkbox" id="ha-mqtt-tls"><span class="slider round"></span></label></td>
+        </tr>
+      </table>
+    </div>
+    <div class="button-container">
+      <button class="btn" id="ha-mqtt-close">Close</button>
+      <button class="btn" id="ha-mqtt-test">Test Connection</button>
+      <button class="btn" id="ha-mqtt-save">Save</button>
+    </div>
+    <p id="ha-mqtt-msg" style="text-align:center;margin-top:8px;"></p>
+  </dialog>
 
   <dialog id="info-dialog">
     <h3><span id="button-header" style="display: block; text-align: center;"></span></h3>

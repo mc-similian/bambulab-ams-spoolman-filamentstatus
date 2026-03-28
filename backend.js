@@ -48,6 +48,178 @@ const SPOOLMAN_URL = SPOOLMAN_SUBFOLDER ? `${baseURL}${SPOOLMAN_SUBFOLDER}` : ba
 
 console.log(SPOOLMAN_URL);
 
+// --- Home Assistant MQTT integration ---
+const haMqttConfigPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "printers", "ha-mqtt.json");
+let haMqttClient = null;
+let haMqttStatus = "Disconnected";
+let haMqttConfig = loadHaMqttConfig();
+
+function loadHaMqttConfig() {
+    try {
+        if (fs.existsSync(haMqttConfigPath)) {
+            return JSON.parse(fs.readFileSync(haMqttConfigPath, "utf-8"));
+        }
+    } catch (e) {
+        console.error("Failed to load HA MQTT config:", e.message);
+    }
+    return { enabled: false, host: "", port: 1883, username: "", password: "", baseTopic: "bambulab-ams-spoolman" };
+}
+
+function saveHaMqttConfig(cfg) {
+    haMqttConfig = cfg;
+    fs.writeFileSync(haMqttConfigPath, JSON.stringify(cfg, null, 2));
+}
+
+async function connectHaMqtt() {
+    if (haMqttClient) {
+        try { await haMqttClient.end(true); } catch {}
+        haMqttClient = null;
+    }
+    haMqttStatus = "Disconnected";
+
+    if (!haMqttConfig.enabled || !haMqttConfig.host) return;
+
+    const protocol = haMqttConfig.tls ? "mqtts" : "mqtt";
+    const url = `${protocol}://${haMqttConfig.host}:${haMqttConfig.port || 1883}`;
+    const opts = { rejectUnauthorized: false };
+    if (haMqttConfig.username) { opts.username = haMqttConfig.username; opts.password = haMqttConfig.password || ""; }
+
+    try {
+        console.log("Server", serverLogFilePath, `Connecting to Home Assistant MQTT broker at ${url}...`);
+        haMqttClient = await mqtt.connectAsync(url, opts);
+        haMqttStatus = "Connected";
+        console.log("Server", serverLogFilePath, "Home Assistant MQTT broker connected!");
+
+        const cmdTopic = `${haMqttConfig.baseTopic}/commands/merge_spool`;
+        await haMqttClient.subscribe(cmdTopic);
+        console.log("Server", serverLogFilePath, `Subscribed to ${cmdTopic}`);
+
+        haMqttClient.on("message", (topic, message) => handleHaMqttMessage(topic, message));
+
+        haMqttClient.on("close", () => {
+            haMqttStatus = "Disconnected";
+            console.log("Server", serverLogFilePath, "Home Assistant MQTT connection closed.");
+        });
+
+        haMqttClient.on("error", (err) => {
+            haMqttStatus = "Error";
+            console.error("Server", serverLogFilePath, `Home Assistant MQTT error: ${err.message}`);
+        });
+    } catch (err) {
+        haMqttStatus = "Error";
+        console.error("Server", serverLogFilePath, `Failed to connect to HA MQTT broker: ${err.message}`);
+    }
+}
+
+async function disconnectHaMqtt() {
+    if (haMqttClient) {
+        try { await haMqttClient.end(true); } catch {}
+        haMqttClient = null;
+    }
+    haMqttStatus = "Disconnected";
+}
+
+async function publishHaSpoolSelection(printer, amsSlot, slot, candidates) {
+    if (!haMqttClient || haMqttStatus !== "Connected") return;
+
+    const topic = `${haMqttConfig.baseTopic}/events/${printer.id}/spool_selection`;
+    const payload = {
+        printer_id: printer.id,
+        printer_name: printer.name,
+        ams_slot: amsSlot,
+        slot_uuid: slot.tray_uuid,
+        material: slot.tray_sub_brands,
+        color: slot.tray_color,
+        remain_percent: slot.remain,
+        candidates: candidates.map(s => ({
+            spool_id: s.id,
+            material: s.filament?.material || "",
+            name: s.filament?.name || "",
+            remaining_weight: s.remaining_weight,
+        })),
+    };
+
+    try {
+        await haMqttClient.publish(topic, JSON.stringify(payload), { retain: true });
+        console.log(printer.name, printer.logFilePath, `    Published spool selection event to HA MQTT: ${topic}`);
+    } catch (err) {
+        console.error(printer.name, printer.logFilePath, `    Failed to publish HA MQTT event: ${err.message}`);
+    }
+}
+
+async function clearHaSpoolSelection(printer, amsSlot) {
+    if (!haMqttClient || haMqttStatus !== "Connected") return;
+    const topic = `${haMqttConfig.baseTopic}/events/${printer.id}/spool_selection`;
+    try {
+        await haMqttClient.publish(topic, "", { retain: true });
+    } catch {}
+}
+
+async function handleHaMqttMessage(topic, message) {
+    const cmdPrefix = `${haMqttConfig.baseTopic}/commands/merge_spool`;
+    if (topic !== cmdPrefix) return;
+
+    let payload;
+    try {
+        payload = JSON.parse(message.toString());
+    } catch {
+        console.error("Server", serverLogFilePath, "HA MQTT: invalid JSON in merge command");
+        return;
+    }
+
+    const { printer_id, ams_slot, spool_id } = payload;
+    if (!printer_id || !ams_slot || !spool_id) {
+        console.error("Server", serverLogFilePath, "HA MQTT: merge command missing printer_id, ams_slot, or spool_id");
+        return;
+    }
+
+    const printer = printers.find(p => p.id === printer_id);
+    if (!printer) {
+        console.error("Server", serverLogFilePath, `HA MQTT: printer ${printer_id} not found`);
+        return;
+    }
+
+    const uiSpool = (printer.spoolData || []).find(s => s.amsId === ams_slot);
+    if (!uiSpool) {
+        console.error(printer.name, printer.logFilePath, `HA MQTT: slot ${ams_slot} not found in spool data`);
+        return;
+    }
+
+    const candidates = uiSpool.mergeableSpools || [];
+    const selectedSpool = candidates.find(s => s.id === spool_id);
+    if (!selectedSpool) {
+        console.error(printer.name, printer.logFilePath, `HA MQTT: spool_id ${spool_id} not in candidates for slot ${ams_slot}`);
+        return;
+    }
+
+    console.log(printer.name, printer.logFilePath, `HA MQTT: Merging slot ${ams_slot} with Spool-ID ${spool_id} (via Home Assistant)`);
+
+    try {
+        await mergeSpool({
+            amsId: uiSpool.amsId,
+            slot: uiSpool.slot,
+            mergeableSpool: selectedSpool,
+            matchingInternalFilament: uiSpool.matchingInternalFilament,
+            matchingExternalFilament: uiSpool.matchingExternalFilament,
+            printerName: printer.name,
+            logFilePath: printer.logFilePath,
+        });
+
+        await clearHaSpoolSelection(printer, ams_slot);
+
+        // Publish confirmation
+        const confirmTopic = `${haMqttConfig.baseTopic}/events/${printer.id}/merge_result`;
+        await haMqttClient.publish(confirmTopic, JSON.stringify({
+            printer_id: printer.id,
+            ams_slot,
+            spool_id,
+            status: "success",
+        }));
+    } catch (err) {
+        console.error(printer.name, printer.logFilePath, `HA MQTT: merge failed: ${err.message}`);
+    }
+}
+
 // save original console.log
 const originalConsoleLog = console.log;
 
@@ -332,6 +504,48 @@ async function getSpoolmanExternalFilaments() {
         spoolmanStatus = "Disconnected";
         return [];
     }
+}
+
+// --- Spoolman Location tracking ---
+const locationCache = {}; // maps location name -> location id
+
+async function getAmsLocationName(printerName, amsRawId) {
+    const amsLetter = await convertAMSandSlot(amsRawId, null);
+    return `${printerName} AMS ${amsLetter}`;
+}
+
+async function getOrCreateLocationId(locationName) {
+    if (locationCache[locationName]) return locationCache[locationName];
+
+    try {
+        const response = await got(`${SPOOLMAN_URL}/api/v1/location`, { responseType: 'json' });
+        const locations = response.body;
+        const existing = locations.find(loc => loc.name === locationName);
+        if (existing) {
+            locationCache[locationName] = existing.id;
+            return existing.id;
+        }
+
+        const createResp = await got.post(`${SPOOLMAN_URL}/api/v1/location`, {
+            json: { name: locationName },
+            responseType: 'json',
+        });
+        locationCache[locationName] = createResp.body.id;
+        console.log("Server", serverLogFilePath, `Created Spoolman location: "${locationName}" (ID: ${createResp.body.id})`);
+        return createResp.body.id;
+    } catch (error) {
+        console.error("Server", serverLogFilePath, `Failed to get/create location "${locationName}": ${error.message}`);
+        return null;
+    }
+}
+
+function parseAmsRawId(amsId) {
+    if (!amsId) return 0;
+    if (amsId.startsWith("HT-")) {
+        const letter = amsId.replace("HT-", "").charAt(0);
+        return 128 + "ABCDEFGH".indexOf(letter);
+    }
+    return "ABCDEFGH".indexOf(amsId.charAt(0));
 }
 
 // Fetching actual Vendor from Spoolman, if Bambu Lab not exists as a Vendor, it will be created
@@ -1181,8 +1395,14 @@ async function handleMqttMessage(printer, topic, message) {
 	                                                        console.log(printer.name, printer.logFilePath, `    Multiple mergeable Spools found (${slot._mergeableSpools.length}), waiting for manual selection...`);
 	                                                    }
 	                                                    option = "Merge Spool";
+
+	                                                    // Publish to Home Assistant MQTT when multiple candidates need selection
+	                                                    if (slot._mergeableSpools && slot._mergeableSpools.length > 1) {
+	                                                        const __amsSlot = await convertAMSandSlot(ams.id, slot.id);
+	                                                        publishHaSpoolSelection(printer, __amsSlot, slot, slot._mergeableSpools);
+	                                                    }
 	                                                }
-	
+
 	                                                // Enable button for manual actions (always when multiple spool candidates exist)
 	                                                const _multipleMatches = slot._mergeableSpools && slot._mergeableSpools.length > 1;
 	                                                if (!automatic || _multipleMatches) enableButton = "true";
@@ -1509,6 +1729,11 @@ async function starting() {
     // Start monitoring printers and Spoolman in the background
     monitorPrinters();
     monitorSpoolmanBackground();
+
+    // Connect to Home Assistant MQTT broker if configured
+    if (haMqttConfig.enabled) {
+        connectHaMqtt();
+    }
 }
 
 // Monitoring printers to handle all mqtt connections
@@ -1793,6 +2018,61 @@ app.post("/api/printer/:printerId/monitoring/start", (req, res) => {
 		setupMqtt(printer);
 	}
 
+});
+
+// --- Home Assistant MQTT config API ---
+app.get("/api/ha-mqtt/config", (req, res) => {
+    const safe = { ...haMqttConfig };
+    if (safe.password) safe.password = "••••••••";
+    res.json(safe);
+});
+
+app.get("/api/ha-mqtt/status", (req, res) => {
+    res.json({ status: haMqttStatus, enabled: haMqttConfig.enabled });
+});
+
+app.post("/api/ha-mqtt/config", async (req, res) => {
+    const { enabled, host, port, username, password, baseTopic, tls } = req.body;
+    const cfg = {
+        enabled: !!enabled,
+        host: host || "",
+        port: parseInt(port, 10) || 1883,
+        username: username || "",
+        password: (password && password !== "••••••••") ? password : haMqttConfig.password,
+        baseTopic: baseTopic || "bambulab-ams-spoolman",
+        tls: !!tls,
+    };
+    saveHaMqttConfig(cfg);
+
+    if (cfg.enabled) {
+        await connectHaMqtt();
+    } else {
+        await disconnectHaMqtt();
+    }
+
+    const safe = { ...cfg };
+    if (safe.password) safe.password = "••••••••";
+    res.json({ ok: true, config: safe, status: haMqttStatus });
+});
+
+app.post("/api/ha-mqtt/test", async (req, res) => {
+    try {
+        if (!haMqttConfig.enabled || !haMqttConfig.host) {
+            return res.json({ ok: false, error: "HA MQTT is not configured or disabled" });
+        }
+        if (haMqttStatus !== "Connected") {
+            await connectHaMqtt();
+        }
+        if (haMqttStatus === "Connected") {
+            const topic = `${haMqttConfig.baseTopic}/test`;
+            await haMqttClient.publish(topic, JSON.stringify({ test: true, timestamp: new Date().toISOString() }));
+            res.json({ ok: true, status: haMqttStatus });
+        } else {
+            res.json({ ok: false, error: "Could not connect", status: haMqttStatus });
+        }
+    } catch (err) {
+        res.json({ ok: false, error: err.message });
+    }
 });
 
 // Start the backend server and initialize configuration

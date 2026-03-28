@@ -335,3 +335,21 @@ body.dark-mode .footer {
 .footer a:hover {
   text-decoration: underline;
 }
+
+/* HA MQTT Settings Dialog */
+#ha-mqtt-dialog input[type="text"],
+#ha-mqtt-dialog input[type="number"],
+#ha-mqtt-dialog input[type="password"] {
+  background-color: #fff;
+  color: #333;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+body.dark-mode #ha-mqtt-dialog input[type="text"],
+body.dark-mode #ha-mqtt-dialog input[type="number"],
+body.dark-mode #ha-mqtt-dialog input[type="password"] {
+  background-color: #444;
+  color: #f1f1f1;
+  border: 1px solid #555;
+}
